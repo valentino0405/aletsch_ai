@@ -1,29 +1,35 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import DashboardLayout from "@/components/navigation/DashboardLayout";
 import { Activity, Search, Filter, RefreshCw, ChevronDown } from "lucide-react";
 
 export default function Events() {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("All");
+  const [eventsData, setEventsData] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const eventsData = [
-    { name: "page_view", category: "Pageview", users: "8,642", occurrences: "12,653", lastSeen: "2m ago" },
-    { name: "button_click", category: "Interaction", users: "5,910", occurrences: "7,842", lastSeen: "5m ago" },
-    { name: "form_submit", category: "Form", users: "4,552", occurrences: "4,312", lastSeen: "12m ago" },
-    { name: "sign_up", category: "Conversion", users: "5,910", occurrences: "5,910", lastSeen: "15m ago" },
-    { name: "login", category: "Conversion", users: "4,552", occurrences: "4,552", lastSeen: "32m ago" },
-    { name: "repository_connected", category: "Conversion", users: "2,184", occurrences: "2,184", lastSeen: "1h ago" },
-    { name: "analysis_started", category: "System", users: "2,143", occurrences: "3,110", lastSeen: "2h ago" },
-    { name: "analysis_completed", category: "System", users: "2,143", occurrences: "3,090", lastSeen: "2h ago" },
-  ];
+  async function loadEvents() {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/events?category=${selectedCategory}&search=${searchTerm}`);
+      if (res.ok) {
+        const json = await res.json();
+        setEventsData(json);
+      }
+    } catch (err) {
+      console.error("Failed to fetch telemetry events:", err);
+    } finally {
+      setLoading(false);
+    }
+  }
 
-  const filteredEvents = eventsData.filter((ev) => {
-    const matchesSearch = ev.name.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesCat = selectedCategory === "All" || ev.category === selectedCategory;
-    return matchesSearch && matchesCat;
-  });
+  useEffect(() => {
+    loadEvents();
+  }, [selectedCategory, searchTerm]);
+
+  const filteredEvents = eventsData;
 
   return (
     <DashboardLayout>
@@ -36,8 +42,11 @@ export default function Events() {
               Query and view all auto-instrumented events captured in your application.
             </p>
           </div>
-          <button className="p-2 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white transition cursor-pointer">
-            <RefreshCw size={14} />
+          <button
+            onClick={loadEvents}
+            className="p-2 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white transition cursor-pointer"
+          >
+            <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
           </button>
         </div>
 

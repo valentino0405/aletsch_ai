@@ -1,15 +1,29 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import DashboardLayout from "@/components/navigation/DashboardLayout";
 import { Users as UsersIcon, Search, MoreHorizontal } from "lucide-react";
 
 export default function Users() {
-  const users = [
-    { email: "john.doe@gmail.com", sessions: 12, events: 48, lastActive: "2m ago", funnel: "Task Completed", status: "Active" },
-    { email: "alice.s@live.com", sessions: 8, events: 32, lastActive: "15m ago", funnel: "Create Task", status: "Active" },
-    { email: "bob.dev@yahoo.com", sessions: 2, events: 8, lastActive: "1h ago", funnel: "Login", status: "Inactive" },
-    { email: "clara.w@outlook.com", sessions: 1, events: 2, lastActive: "2h ago", funnel: "Sign Up", status: "Inactive" },
-  ];
+  const [users, setUsers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function loadUsers() {
+      try {
+        const res = await fetch("/api/users");
+        if (res.ok) {
+          const json = await res.json();
+          setUsers(json);
+        }
+      } catch (err) {
+        console.error("Failed to load users list:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadUsers();
+  }, []);
 
   return (
     <DashboardLayout>

@@ -1,19 +1,39 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import DashboardLayout from "@/components/navigation/DashboardLayout";
 import { Filter, Sparkles, AlertTriangle, ArrowRight, TrendingUp, HelpCircle } from "lucide-react";
 
 export default function FunnelAnalysis() {
   const [selectedFunnel, setSelectedFunnel] = useState("Onboarding Funnel");
+  const [funnelData, setFunnelData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
 
-  const funnelSteps = [
-    { step: 1, name: "Landing Page", users: 8642, percent: 100, drop: 0 },
-    { step: 2, name: "Sign Up", users: 5910, percent: 68.4, drop: 31.6 },
-    { step: 3, name: "Login", users: 4552, percent: 52.7, drop: 15.7 },
-    { step: 4, name: "Create Task", users: 3212, percent: 37.2, drop: 15.5 },
-    { step: 5, name: "Task Completed", users: 2143, percent: 24.8, drop: 12.4 },
-  ];
+  useEffect(() => {
+    async function loadFunnel() {
+      setLoading(true);
+      try {
+        const res = await fetch(`/api/funnels?type=${selectedFunnel}`);
+        if (res.ok) {
+          const json = await res.json();
+          setFunnelData(json);
+        }
+      } catch (err) {
+        console.error("Failed to load conversion funnel details:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadFunnel();
+  }, [selectedFunnel]);
+
+  const funnelSteps = (funnelData?.steps || []).map((s: any, idx: number) => ({
+    step: idx + 1,
+    name: s.name,
+    users: s.users,
+    percent: s.percent,
+    drop: s.drop
+  }));
 
   return (
     <DashboardLayout>
@@ -85,8 +105,16 @@ export default function FunnelAnalysis() {
               AI Funnel Explanation
             </h3>
             <p className="text-xs text-zinc-400 leading-relaxed">
-              &ldquo;The largest drop-off occurs after the <strong>Sign Up</strong> stage (31.6%).
-              Based on the code structure detected in your login components, this may indicate friction caused by email validation requirements before completing the login flow. Simplifying the sign-up verification screen may recover up to 14.5% of these users.&rdquo;
+              {funnelData?.largestDropoff ? (
+                <span>
+                  &ldquo;The largest drop-off occurs between <strong>{funnelData.largestDropoff.from}</strong> and <strong>{funnelData.largestDropoff.to}</strong> ({funnelData.largestDropoff.rate}).
+                  Based on component structures detected in your component layout, this indicates friction that could be optimized by simplifying interactions or styling controls on these route boundaries.&rdquo;
+                </span>
+              ) : (
+                <span>
+                  &ldquo;Analyze your component layout tree. Once telemetry events are ingested, Aletsch AI automatically computes conversions and drop-offs to pinpoint hotspots.&rdquo;
+                </span>
+              )}
             </p>
             <div className="flex items-center gap-2 text-xs font-semibold text-indigo-400 hover:text-indigo-300 transition cursor-pointer">
               <span>View optimization opportunities</span>
@@ -99,13 +127,15 @@ export default function FunnelAnalysis() {
               <h3 className="text-xs uppercase font-bold text-zinc-500">
                 Biggest Drop-off Stage
               </h3>
-              <h4 className="text-lg font-bold text-white">Sign Up → Login</h4>
+              <h4 className="text-lg font-bold text-white">
+                {funnelData?.largestDropoff ? `${funnelData.largestDropoff.from} → ${funnelData.largestDropoff.to}` : "None Mapped"}
+              </h4>
               <p className="text-xs text-rose-500 flex items-center gap-1 font-semibold">
-                <TrendingUp size={14} className="rotate-180" /> 31.6% Conversion Drop-off
+                <TrendingUp size={14} className="rotate-180" /> {funnelData?.largestDropoff ? `${funnelData.largestDropoff.rate} Drop-off` : "0% Drop-off"}
               </p>
             </div>
             <div className="border-t border-zinc-900 pt-4 text-[10px] text-zinc-500">
-              Affecting approximately 2,732 users per week.
+              Computed from live workspace telemetry datasets.
             </div>
           </div>
         </div>

@@ -1,35 +1,29 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import DashboardLayout from "@/components/navigation/DashboardLayout";
 import { BrainCircuit, AlertTriangle, Sparkles, TrendingUp, HelpCircle, CheckCircle2 } from "lucide-react";
 
 export default function Insights() {
-  const insights = [
-    {
-      type: "critical",
-      title: "Onboarding Drop-off Alert",
-      description: "31.6% of users abandon the application right after Sign Up. AI analysis indicates this is caused by a missing welcome redirect layout.",
-      impact: "High Impact",
-      recommendation: "Redirect users to /dashboard immediately after clerk authentication completes rather than keeping them on default verification screens.",
-      color: "border-rose-500/30 text-rose-400 bg-rose-500/5 glow-rose",
-    },
-    {
-      type: "opportunity",
-      title: "Repository Connection Boost",
-      description: "Repository connection is the primary conversion step. Users who connect a Git repository are 2.4x more likely to remain active.",
-      impact: "Medium Impact",
-      recommendation: "Place the 'Connect Repository' widget prominently on the dashboard welcome banner.",
-      color: "border-indigo-500/30 text-indigo-400 bg-indigo-500/5 glow-indigo",
-    },
-    {
-      type: "positive",
-      title: "Onboarding Progression",
-      description: "Taskflow creation stages show excellent retention. 88.5% of users who create a task completed the onboarding.",
-      impact: "Low Impact",
-      recommendation: "Highlight the creation success banner to trigger dopamine loops.",
-      color: "border-emerald-500/30 text-emerald-400 bg-emerald-500/5 glow-emerald",
-    },
-  ];
+  const [insights, setInsights] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function loadInsights() {
+      try {
+        const res = await fetch("/api/insights");
+        if (res.ok) {
+          const json = await res.json();
+          setInsights(json);
+        }
+      } catch (err) {
+        console.error("Failed to load insights:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadInsights();
+  }, []);
 
   return (
     <DashboardLayout>

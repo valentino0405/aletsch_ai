@@ -1,38 +1,29 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import DashboardLayout from "@/components/navigation/DashboardLayout";
 import { BellRing, AlertTriangle, AlertCircle, Sparkles } from "lucide-react";
 
 export default function Alerts() {
-  const alerts = [
-    {
-      id: "1",
-      title: "High drop-off detected",
-      description: "Onboarding funnel conversion dropped by 12% between Sign Up and Login steps.",
-      severity: "Critical",
-      category: "Funnel Analysis",
-      time: "32m ago",
-      colorClass: "border-rose-500/30 bg-rose-500/5 text-rose-400 glow-rose",
-    },
-    {
-      id: "2",
-      title: "Event volume spike",
-      description: "Event 'repository_connected' triggered 4x more frequently than typical hourly average.",
-      severity: "Warning",
-      category: "Telemetry Engine",
-      time: "1h ago",
-      colorClass: "border-amber-500/30 bg-amber-500/5 text-amber-400 glow-amber",
-    },
-    {
-      id: "3",
-      title: "Instrumentation issues",
-      description: "Code injection handler failed in Checkout.tsx on layout render hooks.",
-      severity: "Warning",
-      category: "Telemetry Engine",
-      time: "3h ago",
-      colorClass: "border-amber-500/30 bg-amber-500/5 text-amber-400 glow-amber",
-    },
-  ];
+  const [alerts, setAlerts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function loadAlerts() {
+      try {
+        const res = await fetch("/api/alerts");
+        if (res.ok) {
+          const json = await res.json();
+          setAlerts(json);
+        }
+      } catch (err) {
+        console.error("Failed to load alerts:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadAlerts();
+  }, []);
 
   return (
     <DashboardLayout>
