@@ -1,7 +1,7 @@
 // Quick seed script - run with: node scripts/seed-events.mjs
 import { MongoClient } from "mongodb";
 
-const MONGODB_URI = process.env.MONGODB_URI || "mongodb://credence_user:credence1234@healthify-shard-00-00.0guz1.mongodb.net:27017,healthify-shard-00-01.0guz1.mongodb.net:27017,healthify-shard-00-02.0guz1.mongodb.net:27017/sql_noir?ssl=true&replicaSet=atlas-y5oqu3-shard-0&authSource=admin&appName=HEALTHIFY";
+const MONGODB_URI = process.env.MONGODB_URI
 const DB_NAME = process.env.MONGODB_DB || "aletsch_ai";
 
 const client = new MongoClient(MONGODB_URI);
