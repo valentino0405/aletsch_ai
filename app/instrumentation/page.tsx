@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import DashboardLayout from "@/components/navigation/DashboardLayout";
 import { Cpu, CheckCircle2, ChevronRight, Terminal, Sparkles, FileCode, Play } from "lucide-react";
 
@@ -12,12 +13,22 @@ export default function Instrumentation() {
     { title: "Auto Injection", desc: "Injecting telemetry middleware directly to repo" },
   ];
 
-  const detectedComponents = [
-    { name: "Dashboard.tsx", type: "Page Layout", status: "Instrumented", progress: "100%", events: ["Page View", "Date Picker Toggle"] },
-    { name: "LoginForm.tsx", type: "Form Block", status: "Instrumented", progress: "100%", events: ["Form Submission", "Oauth Initiated"] },
-    { name: "ConnectRepositoryButton.tsx", type: "CTA Button", status: "Instrumented", progress: "100%", events: ["CTA Click"] },
-    { name: "AnalyzeButton.tsx", type: "User Interaction", status: "Syncing", progress: "60%", events: ["Trigger Click"] },
-  ];
+  const [detectedComponents, setDetectedComponents] = useState<any[]>([]);
+
+  useEffect(() => {
+    async function fetchComponents() {
+      try {
+        const res = await fetch("/api/instrumentation");
+        if (res.ok) {
+          const json = await res.json();
+          setDetectedComponents(json);
+        }
+      } catch (err) {
+        console.error("Error loading instrumentation component mappings:", err);
+      }
+    }
+    fetchComponents();
+  }, []);
 
   return (
     <DashboardLayout>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useUser } from "@clerk/nextjs";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import DashboardLayout from "@/components/navigation/DashboardLayout";
 import {
   Users as UsersIcon,
@@ -24,12 +24,30 @@ export default function Dashboard() {
   const { user, isLoaded } = useUser();
   const [dateRange, setDateRange] = useState("Last 7 days");
   const [showRangeDropdown, setShowRangeDropdown] = useState(false);
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
 
-  // Mock data for the metrics
+  useEffect(() => {
+    async function fetchDashboard() {
+      try {
+        const res = await fetch("/api/dashboard");
+        if (res.ok) {
+          const json = await res.json();
+          setData(json);
+        }
+      } catch (err) {
+        console.error("Failed to load dashboard statistics:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchDashboard();
+  }, []);
+
   const metrics = [
     {
       title: "Total Users",
-      value: "8,642",
+      value: data?.totalUsers || "0",
       change: "+12.5%",
       isPositive: true,
       icon: UsersIcon,
@@ -40,7 +58,7 @@ export default function Dashboard() {
     },
     {
       title: "Events Tracked",
-      value: "24.7K",
+      value: data?.eventsTracked || "0",
       change: "+18.3%",
       isPositive: true,
       icon: Activity,
@@ -51,7 +69,7 @@ export default function Dashboard() {
     },
     {
       title: "Conversion Rate",
-      value: "34.6%",
+      value: data?.conversionRate || "0.0%",
       change: "+6.1%",
       isPositive: true,
       icon: Flame,
@@ -62,7 +80,7 @@ export default function Dashboard() {
     },
     {
       title: "Avg. Session Time",
-      value: "4m 32s",
+      value: data?.averageSessionTime || "0s",
       change: "+8.7%",
       isPositive: true,
       icon: Clock,
@@ -73,7 +91,7 @@ export default function Dashboard() {
     },
     {
       title: "At Risk Drop-offs",
-      value: "3",
+      value: String(data?.atRiskDropoffs ?? "0"),
       change: "-2 vs last week",
       isPositive: true,
       icon: AlertTriangle,
@@ -84,14 +102,14 @@ export default function Dashboard() {
     },
   ];
 
-  // Funnel Data
-  const funnelSteps = [
-    { name: "Landing Page", rate: "100%", users: "8,642", drop: null, active: true },
-    { name: "Sign Up", rate: "68.4%", users: "5,910", drop: "31.6%", active: true },
-    { name: "Login", rate: "52.7%", users: "4,552", drop: "15.7%", active: true },
-    { name: "Create Task", rate: "37.2%", users: "3,212", drop: "15.5%", active: true },
-    { name: "Task Completed", rate: "24.8%", users: "2,143", drop: "12.4%", active: true },
+  const funnelSteps = data?.funnel && data.funnel.length > 0 ? data.funnel : [
+    { name: "Landing Page", rate: "100%", users: "0", drop: null, active: true },
+    { name: "Sign Up", rate: "0%", users: "0", drop: "0%", active: true },
+    { name: "Login", rate: "0%", users: "0", drop: "0%", active: true },
+    { name: "Create Task", rate: "0%", users: "0", drop: "0%", active: true },
+    { name: "Task Completed", rate: "0%", users: "0", drop: "0%", active: true },
   ];
+
 
   return (
     <DashboardLayout>
@@ -300,13 +318,21 @@ export default function Dashboard() {
               </div>
 
               <div className="space-y-3">
-                {[
+                {(data?.topEvents && data.topEvents.length > 0 ? data.topEvents.map((e: any) => ({
+                  name: e.name,
+                  count: e.count,
+                  cat: e.cat,
+                  color: e.cat === "Pageview" ? "bg-indigo-500/20 text-indigo-300" :
+                         e.cat === "Interaction" ? "bg-purple-500/20 text-purple-300" :
+                         e.cat === "System" ? "bg-cyan-500/20 text-cyan-300" :
+                         e.cat === "Form" ? "bg-emerald-500/20 text-emerald-300" : "bg-zinc-500/20 text-zinc-300"
+                })) : [
                   { name: "Page Viewed", count: "12,653", cat: "Pageview", color: "bg-indigo-500/20 text-indigo-300" },
                   { name: "Button Clicked", count: "7,842", cat: "Interaction", color: "bg-purple-500/20 text-purple-300" },
                   { name: "User Logged In", count: "4,552", cat: "System", color: "bg-cyan-500/20 text-cyan-300" },
                   { name: "Form Submitted", count: "4,312", cat: "Form", color: "bg-emerald-500/20 text-emerald-300" },
                   { name: "Task Created", count: "3,241", cat: "Interaction", color: "bg-purple-500/20 text-purple-300" },
-                ].map((ev) => (
+                ]).map((ev: any) => (
                   <div key={ev.name} className="flex items-center justify-between py-1.5 border-b border-zinc-900 last:border-0">
                     <div className="flex items-center gap-2.5">
                       <span className={`text-[9px] px-1.5 py-0.5 rounded font-mono ${ev.color}`}>
@@ -428,12 +454,17 @@ export default function Dashboard() {
               </div>
 
               <div className="space-y-3">
-                {[
+                {(data?.recentActivity && data.recentActivity.length > 0 ? data.recentActivity.map((r: any) => ({
+                  desc: r.desc,
+                  time: r.time,
+                  icon: r.type === "code" ? Code : r.type === "alert" ? AlertTriangle : r.type === "sync" ? CheckCircle2 : Activity,
+                  color: r.type === "code" ? "text-cyan-400" : r.type === "alert" ? "text-rose-400" : r.type === "sync" ? "text-emerald-400" : "text-indigo-400"
+                })) : [
                   { desc: "New event tracked: Task Completed", time: "2m ago", icon: Activity, color: "text-emerald-400" },
                   { desc: "Instrumentation added: Calendar.tsx", time: "15m ago", icon: Code, color: "text-cyan-400" },
                   { desc: "Drop-off alert: Sign Up Page", time: "32m ago", icon: AlertTriangle, color: "text-rose-400" },
                   { desc: "Repository synced successfully", time: "1h ago", icon: CheckCircle2, color: "text-emerald-400" },
-                ].map((act, i) => {
+                ]).map((act: any, i: number) => {
                   const Icon = act.icon;
                   return (
                     <div key={i} className="flex gap-2.5 items-start">

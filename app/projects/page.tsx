@@ -1,38 +1,42 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import DashboardLayout from "@/components/navigation/DashboardLayout";
 import { FolderKanban, Terminal, Sparkles, Plus, CheckCircle2, RefreshCw } from "lucide-react";
 
 export default function Projects() {
-  const [projects, setProjects] = useState([
-    {
-      id: "1",
-      name: "TaskFlow Pro",
-      framework: "Next.js",
-      repositoryUrl: "github.com/example/taskflow",
-      status: "Connected",
-      lastAnalyzed: "Today",
-      events: "24.7K",
-      users: "8,642",
-    },
-    {
-      id: "2",
-      name: "E-Shop Client",
-      framework: "React SPA",
-      repositoryUrl: "github.com/example/eshop",
-      status: "Connected",
-      lastAnalyzed: "2 days ago",
-      events: "112.5K",
-      users: "31,200",
-    },
-  ]);
-
+  const [projects, setProjects] = useState<any[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
   const [name, setName] = useState("");
   const [repoUrl, setRepoUrl] = useState("");
   const [branch, setBranch] = useState("main");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    async function loadProjects() {
+      try {
+        const res = await fetch("/api/projects");
+        if (res.ok) {
+          const json = await res.json();
+          // Normalize structure from MongoDB schema (mapping _id/id, stats, etc.)
+          const normalized = json.map((p: any) => ({
+            id: p._id || p.id || String(Math.random()),
+            name: p.name,
+            framework: p.framework || "Next.js",
+            repositoryUrl: p.repositoryUrl.replace("https://", ""),
+            status: p.status || "Connected",
+            lastAnalyzed: p.lastAnalyzedAt ? new Date(p.lastAnalyzedAt).toLocaleDateString() : "Just Now",
+            events: p.events || "0",
+            users: p.users || "0",
+          }));
+          setProjects(normalized);
+        }
+      } catch (err) {
+        console.error("Error loading projects:", err);
+      }
+    }
+    loadProjects();
+  }, []);
 
   const handleAddProject = async (e: React.FormEvent) => {
     e.preventDefault();
