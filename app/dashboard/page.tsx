@@ -18,6 +18,8 @@ import {
   CheckCircle2,
   Calendar,
   ChevronDown,
+  GitBranch,
+  MousePointerClick,
 } from "lucide-react";
 
 export default function Dashboard() {
@@ -25,24 +27,56 @@ export default function Dashboard() {
   const [dateRange, setDateRange] = useState("Last 7 days");
   const [showRangeDropdown, setShowRangeDropdown] = useState(false);
   const [data, setData] = useState<any>(null);
+  const [insights, setInsights] = useState<any[]>([]);
+  const [components, setComponents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [generatingInsights, setGeneratingInsights] = useState(false);
 
   useEffect(() => {
-    async function fetchDashboard() {
+    async function fetchAll() {
       try {
-        const res = await fetch("/api/dashboard");
-        if (res.ok) {
-          const json = await res.json();
-          setData(json);
-        }
+        const [dashRes, insightsRes, compRes] = await Promise.all([
+          fetch("/api/dashboard"),
+          fetch("/api/insights"),
+          fetch("/api/instrumentation"),
+        ]);
+        if (dashRes.ok) setData(await dashRes.json());
+        if (insightsRes.ok) setInsights(await insightsRes.json());
+        if (compRes.ok) setComponents(await compRes.json());
       } catch (err) {
-        console.error("Failed to load dashboard statistics:", err);
+        console.error("Failed to load dashboard:", err);
       } finally {
         setLoading(false);
       }
     }
-    fetchDashboard();
+    fetchAll();
   }, []);
+
+  const triggerInsights = async () => {
+    setGeneratingInsights(true);
+    try {
+      // POST to generate fresh insights via OpenRouter for first project
+      const projRes = await fetch("/api/projects");
+      if (projRes.ok) {
+        const projects = await projRes.json();
+        if (projects.length > 0) {
+          const projectId = projects[0]._id || projects[0].id;
+          await fetch("/api/insights", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ projectId }),
+          });
+          const fresh = await fetch("/api/insights");
+          if (fresh.ok) setInsights(await fresh.json());
+        }
+      }
+    } catch (e) {
+      console.error("Insight generation failed:", e);
+    } finally {
+      setGeneratingInsights(false);
+    }
+  };
+
 
   const metrics = [
     {
@@ -68,26 +102,26 @@ export default function Dashboard() {
       sparkline: [10, 15, 25, 20, 35, 42, 47],
     },
     {
-      title: "Conversion Rate",
-      value: data?.conversionRate || "0.0%",
-      change: "+6.1%",
+      title: "Repos Connected",
+      value: String(data?.reposConnected ?? "0"),
+      change: "Active",
       isPositive: true,
-      icon: Flame,
+      icon: GitBranch,
       colorClass: "text-cyan-400",
       bgClass: "bg-cyan-500/10",
       glowClass: "glow-cyan",
-      sparkline: [30, 32, 28, 31, 33, 35, 34.6],
+      sparkline: [0, 0, 1, 1, 1, 1, data?.reposConnected || 1],
     },
     {
-      title: "Avg. Session Time",
-      value: data?.averageSessionTime || "0s",
-      change: "+8.7%",
+      title: "Components Found",
+      value: String(data?.componentsDetected ?? "0"),
+      change: "Auto-instrumented",
       isPositive: true,
-      icon: Clock,
+      icon: MousePointerClick,
       colorClass: "text-emerald-400",
       bgClass: "bg-emerald-500/10",
       glowClass: "glow-emerald",
-      sparkline: [250, 240, 260, 255, 270, 272, 272],
+      sparkline: [0, 2, 5, 8, 12, 18, data?.componentsDetected || 0],
     },
     {
       title: "At Risk Drop-offs",
@@ -263,7 +297,7 @@ export default function Dashboard() {
                   </svg>
                 </div>
 
-                {funnelSteps.map((step, idx) => (
+                {funnelSteps.map((step: any, idx: number) => (
                   <div key={step.name} className="flex-1 flex flex-col items-center relative z-10">
                     <div className="relative">
                       <div className="w-12 h-12 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-center text-xs font-bold text-zinc-300 hover:border-indigo-500 hover:text-white transition cursor-pointer relative shadow-lg">

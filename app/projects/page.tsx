@@ -1,16 +1,31 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import DashboardLayout from "@/components/navigation/DashboardLayout";
-import { FolderKanban, Terminal, Sparkles, Plus, CheckCircle2, RefreshCw } from "lucide-react";
+import { FolderKanban, Terminal, Sparkles, Plus, CheckCircle2, RefreshCw, Loader2 } from "lucide-react";
 
 export default function Projects() {
+  const router = useRouter();
   const [projects, setProjects] = useState<any[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
   const [name, setName] = useState("");
   const [repoUrl, setRepoUrl] = useState("");
   const [branch, setBranch] = useState("main");
   const [loading, setLoading] = useState(false);
+  const [syncingId, setSyncingId] = useState<string | null>(null);
+
+  const handleSync = async (projectId: string) => {
+    setSyncingId(projectId);
+    try {
+      await fetch(`/api/repositories/${projectId}/sync`, { method: "POST" });
+      setProjects(prev => prev.map(p => p.id === projectId ? { ...p, status: "Ready" } : p));
+    } catch (err) {
+      console.error("Sync failed:", err);
+    } finally {
+      setSyncingId(null);
+    }
+  };
 
   useEffect(() => {
     async function loadProjects() {
@@ -167,10 +182,18 @@ export default function Projects() {
               </div>
 
               <div className="flex justify-end gap-3 mt-6">
-                <button className="flex items-center gap-1 text-xs font-semibold text-zinc-400 hover:text-white transition cursor-pointer">
-                  <RefreshCw size={12} /> Sync
+                <button
+                  onClick={() => handleSync(project.id)}
+                  disabled={syncingId === project.id}
+                  className="flex items-center gap-1 text-xs font-semibold text-zinc-400 hover:text-white transition cursor-pointer disabled:opacity-50"
+                >
+                  {syncingId === project.id ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+                  {syncingId === project.id ? "Syncing..." : "Sync"}
                 </button>
-                <button className="text-xs font-semibold text-indigo-400 hover:text-indigo-300 transition flex items-center gap-1 cursor-pointer">
+                <button
+                  onClick={() => router.push(`/projects/${project.id}/analytics`)}
+                  className="text-xs font-semibold text-indigo-400 hover:text-indigo-300 transition flex items-center gap-1 cursor-pointer"
+                >
                   View Analytics <Sparkles size={12} className="text-indigo-300" />
                 </button>
               </div>
