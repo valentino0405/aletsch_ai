@@ -13,33 +13,6 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const projectId = searchParams.get("projectId");
 
-    const hasMongo = !!process.env.MONGODB_URI;
-    if (!hasMongo) {
-      // Mock insights fallback list
-      return NextResponse.json([
-        {
-          type: "critical",
-          title: "Onboarding Drop-off Alert",
-          description: "31.6% of users abandon the application right after Sign Up. AI analysis indicates this is caused by a missing welcome redirect layout.",
-          recommendation: "Redirect users to /dashboard immediately after clerk authentication completes rather than keeping them on default verification screens.",
-          createdAt: new Date().toISOString()
-        },
-        {
-          type: "opportunity",
-          title: "Repository Connection Boost",
-          description: "Repository connection is the primary conversion step. Users who connect a Git repository are 2.4x more likely to remain active.",
-          recommendation: "Place the 'Connect Repository' widget prominently on the dashboard welcome banner.",
-          createdAt: new Date().toISOString()
-        },
-        {
-          type: "positive",
-          title: "Onboarding Progression",
-          description: "Taskflow creation stages show excellent retention. 88.5% of users who create a task completed the onboarding.",
-          recommendation: "Highlight the creation success banner to trigger dopamine loops.",
-          createdAt: new Date().toISOString()
-        }
-      ]);
-    }
 
     const db = await getDb();
 

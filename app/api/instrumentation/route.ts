@@ -12,16 +12,6 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const projectId = searchParams.get("projectId");
 
-    const hasMongo = !!process.env.MONGODB_URI;
-    if (!hasMongo) {
-      // Mock static fallback components matching user dashboard items
-      return NextResponse.json([
-        { name: "DashboardLayout.tsx", type: "Page Layout", status: "Instrumented", progress: "100%", events: ["page_view", "dashboard_loaded"] },
-        { name: "LoginForm.tsx", type: "Form Block", status: "Instrumented", progress: "100%", events: ["form_submitted", "user_logged_in"] },
-        { name: "ConnectRepositoryButton.tsx", type: "CTA Button", status: "Instrumented", progress: "100%", events: ["repository_connected"] },
-        { name: "AnalyzeButton.tsx", type: "User Interaction", status: "Syncing", progress: "60%", events: ["analysis_started"] }
-      ]);
-    }
 
     const db = await getDb();
 

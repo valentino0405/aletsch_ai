@@ -20,15 +20,6 @@ export async function POST(
       return NextResponse.json({ error: "Missing projectId." }, { status: 400 });
     }
 
-    const hasMongo = !!process.env.MONGODB_URI;
-    if (!hasMongo) {
-      // Mock flow success fallback
-      return NextResponse.json({
-        success: true,
-        status: "Syncing",
-        message: "Project sync triggered in mock mode."
-      });
-    }
 
     const db = await getDb();
     

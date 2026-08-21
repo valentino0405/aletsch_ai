@@ -9,9 +9,7 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const hasMongo = !!process.env.MONGODB_URI;
 
-    if (hasMongo) {
       const db = await getDb();
 
       // Fetch projects to scope queries
@@ -152,42 +150,7 @@ export async function GET() {
           dashboardService: 100
         }
       });
-    }
 
-    // Fallback: Default mock project return if MongoDB is not configured
-    return NextResponse.json({
-      totalUsers: "8,642",
-      eventsTracked: "24.7K",
-      conversionRate: "34.6%",
-      averageSessionTime: "4m 32s",
-      atRiskDropoffs: 3,
-      funnel: [
-        { name: "Landing Page", rate: "100%", users: "8,642", drop: null, active: true },
-        { name: "Sign Up", rate: "68.4%", users: "5,910", drop: "31.6%", active: true },
-        { name: "Login", rate: "52.7%", users: "4,552", drop: "15.7%", active: true },
-        { name: "Create Task", rate: "37.2%", users: "3,212", drop: "15.5%", active: true },
-        { name: "Task Completed", rate: "24.8%", users: "2,143", drop: "12.4%", active: true }
-      ],
-      topEvents: [
-        { name: "page_view", count: "12,653", cat: "Pageview" },
-        { name: "button_click", count: "7,842", cat: "Interaction" },
-        { name: "user_logged_in", count: "4,552", cat: "System" },
-        { name: "form_submit", count: "4,312", cat: "Form" },
-        { name: "task_created", count: "3,241", cat: "Interaction" }
-      ],
-      recentActivity: [
-        { desc: "New event tracked: Task Completed", time: "2m ago", type: "event" },
-        { desc: "Instrumentation added: Calendar.tsx", time: "15m ago", type: "code" },
-        { desc: "Drop-off alert: Sign Up Page", time: "32m ago", type: "alert" },
-        { desc: "Repository synced successfully", time: "1h ago", type: "sync" }
-      ],
-      systemHealth: {
-        repoConnection: 100,
-        eventProcessing: 98,
-        aiAnalysis: 95,
-        dashboardService: 100
-      }
-    });
   } catch (error: any) {
     console.error("Dashboard API error:", error);
     return NextResponse.json({ error: error.message || "Server Error" }, { status: 500 });

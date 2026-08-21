@@ -12,21 +12,6 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const funnelType = searchParams.get("type") || "Onboarding Funnel";
 
-    const hasMongo = !!process.env.MONGODB_URI;
-    if (!hasMongo) {
-      // Mock onboarding steps
-      return NextResponse.json({
-        funnelName: funnelType,
-        steps: [
-          { name: "Landing Page", rate: "100%", users: 8642, percent: 100, drop: 0 },
-          { name: "Sign Up", users: 5910, percent: 68.4, drop: 31.6 },
-          { name: "Login", users: 4552, percent: 52.7, drop: 15.7 },
-          { name: "Create Task", users: 3212, percent: 37.2, drop: 15.5 },
-          { name: "Task Completed", users: 2143, percent: 24.8, drop: 12.4 }
-        ],
-        largestDropoff: { from: "Sign Up", to: "Login", rate: "31.6%" }
-      });
-    }
 
     const db = await getDb();
 
