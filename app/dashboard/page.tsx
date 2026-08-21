@@ -393,35 +393,21 @@ export default function Dashboard() {
               </h3>
 
               <div className="space-y-4">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-1.5 text-rose-400 text-xs font-semibold">
-                    <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
-                    High Drop-Off Detected
-                  </div>
-                  <p className="text-[10px] text-zinc-400 leading-normal">
-                    31.6% of users abandon onboarding after Sign Up before reaching Login.
-                  </p>
-                </div>
-
-                <div className="space-y-1">
-                  <div className="flex items-center gap-1.5 text-indigo-400 text-xs font-semibold">
-                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
-                    Optimization Opportunity
-                  </div>
-                  <p className="text-[10px] text-zinc-400 leading-normal">
-                    Simplifying the sign-up form field requirement can boost logins by 14%.
-                  </p>
-                </div>
-
-                <div className="space-y-1">
-                  <div className="flex items-center gap-1.5 text-emerald-400 text-xs font-semibold">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                    Positive User Behavior
-                  </div>
-                  <p className="text-[10px] text-zinc-400 leading-normal">
-                    Users creating a task within 3 minutes are 2.4x more likely to remain active.
-                  </p>
-                </div>
+                {insights && insights.length > 0 ? (
+                  insights.slice(0,3).map((ins, i) => (
+                    <div key={i} className="space-y-1">
+                      <div className={`flex items-center gap-1.5 text-xs font-semibold ${ins.type === 'critical' ? 'text-rose-400' : ins.type === 'opportunity' ? 'text-indigo-400' : 'text-emerald-400'}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${ins.type === 'critical' ? 'bg-rose-500 animate-pulse' : ins.type === 'opportunity' ? 'bg-indigo-500' : 'bg-emerald-500'}`} />
+                        {ins.title}
+                      </div>
+                      <p className="text-[10px] text-zinc-400 leading-normal">
+                        {ins.description} {ins.recommendation && <><br/><span className="text-zinc-300">Tip: {ins.recommendation}</span></>}
+                      </p>
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-xs text-zinc-500">No AI insights generated yet. Click Sync on a project.</div>
+                )}
               </div>
             </div>
           </div>
@@ -455,19 +441,19 @@ export default function Dashboard() {
                 <div className="flex-1 space-y-1.5">
                   <div className="flex items-center justify-between text-[11px]">
                     <span className="text-zinc-400">Pages</span>
-                    <span className="font-semibold text-white">98%</span>
+                    <span className="font-semibold text-white">{components.some(c => c.type === 'Page Layout') ? '100%' : '0%'}</span>
                   </div>
                   <div className="flex items-center justify-between text-[11px]">
                     <span className="text-zinc-400">Components</span>
-                    <span className="font-semibold text-white">89%</span>
+                    <span className="font-semibold text-white">{components.some(c => c.type !== 'Page Layout') ? '100%' : '0%'}</span>
                   </div>
                   <div className="flex items-center justify-between text-[11px]">
                     <span className="text-zinc-400">Events</span>
-                    <span className="font-semibold text-white">93%</span>
+                    <span className="font-semibold text-white">{data?.eventsTracked > 0 ? '100%' : '0%'}</span>
                   </div>
                   <div className="flex items-center justify-between text-[11px]">
                     <span className="text-zinc-400">API Calls</span>
-                    <span className="font-semibold text-white">85%</span>
+                    <span className="font-semibold text-white">{data?.reposConnected ? '100%' : '0%'}</span>
                   </div>
                 </div>
               </div>
@@ -526,10 +512,10 @@ export default function Dashboard() {
 
               <div className="space-y-2">
                 {[
-                  { name: "Repository Connection", val: 100 },
-                  { name: "Event Processing", val: 98 },
-                  { name: "AI Analysis Engine", val: 95 },
-                  { name: "Dashboard Service", val: 100 },
+                  { name: "Repository Connection", val: data?.systemHealth?.repoConnection ?? 0 },
+                  { name: "Event Processing", val: data?.systemHealth?.eventProcessing ?? 0 },
+                  { name: "AI Analysis Engine", val: data?.systemHealth?.aiAnalysis ?? 0 },
+                  { name: "Dashboard Service", val: data?.systemHealth?.dashboardService ?? 100 },
                 ].map((sys) => (
                   <div key={sys.name} className="space-y-1">
                     <div className="flex justify-between text-[9px] text-zinc-400 font-semibold">
@@ -538,7 +524,7 @@ export default function Dashboard() {
                     </div>
                     <div className="h-1 bg-zinc-900 rounded-full overflow-hidden">
                       <div
-                        className="h-full bg-emerald-500"
+                        className={`h-full ${sys.val === 100 ? 'bg-emerald-500' : sys.val > 0 ? 'bg-cyan-500' : 'bg-rose-500'}`}
                         style={{ width: `${sys.val}%` }}
                       />
                     </div>
