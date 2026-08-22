@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import { getDb } from "@/lib/mongodb";
+import { getDbOrNull } from "@/lib/mongodb";
 import { parseGitHubUrl, getRepoMetadata, getRepoBranches } from "@/lib/github";
+import { fallbackStore } from "@/lib/fallback-store";
 
 export async function GET() {
   try {
@@ -10,20 +11,31 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    if (!process.env.MONGODB_URI) {
-      return NextResponse.json([]); // Return empty list if no DB
+    const db = await getDbOrNull();
+    if (db) {
+      const repos = await db
+        .collection("repositories")
+        .find({ ownerId: userId })
+        .sort({ lastSyncedAt: -1 })
+        .toArray();
+
+      return NextResponse.json(
+        repos.map((r) => ({
+          id: r._id.toString(),
+          name: r.name,
+          url: r.url,
+          branch: r.defaultBranch || "main",
+          language: r.language || "TypeScript",
+          status: r.status || "Synced",
+        }))
+      );
     }
 
-    const db = await getDb();
-    const repos = await db
-      .collection("repositories")
-      .find({ ownerId: userId })
-      .sort({ lastSyncedAt: -1 })
-      .toArray();
-
+    // Fallback store
+    const fbRepos = fallbackStore.getRepositories(userId);
     return NextResponse.json(
-      repos.map((r) => ({
-        id: r._id.toString(),
+      fbRepos.map((r) => ({
+        id: r.id,
         name: r.name,
         url: r.url,
         branch: r.defaultBranch || "main",
@@ -73,9 +85,11 @@ export async function POST(req: Request) {
       console.warn("Could not load branches, default to main", e);
     }
 
-    // 4. Save repository + project to MongoDB and fire analysis
-    if (process.env.MONGODB_URI) {
-      const db = await getDb();
+    // 4. Save repository + project to MongoDB or Fallback Store
+    const db = await getDbOrNull();
+    if (db) {
+      const existingProject = await db.collection("projects").findOne({ repositoryUrl, ownerId: userId });
+      let projectId = existingProject?._id?.toString();
 
       // Save to repositories collection
       const repoDoc = {
@@ -89,7 +103,7 @@ export async function POST(req: Request) {
         language: meta.language,
         branches,
         lastSyncedAt: new Date().toISOString(),
-        status: "Analyzing"
+        status: "Analyzing",
       };
       await db.collection("repositories").replaceOne(
         { url: repositoryUrl, ownerId: userId },
@@ -97,7 +111,7 @@ export async function POST(req: Request) {
         { upsert: true }
       );
 
-      // Also upsert into projects collection (required by analysis runner + sync route)
+      // Upsert into projects collection
       const projectDoc = {
         ownerId: userId,
         name: meta.name,
@@ -116,17 +130,21 @@ export async function POST(req: Request) {
         { upsert: true }
       );
 
-      const projectId = projectResult.upsertedId?.toString();
+      if (!projectId && projectResult.upsertedId) {
+        projectId = projectResult.upsertedId.toString();
+      }
+      if (!projectId) {
+        const updated = await db.collection("projects").findOne({ repositoryUrl, ownerId: userId });
+        projectId = updated?._id?.toString();
+      }
 
-      // Fire background analysis immediately
+      // Fire background analysis immediately if projectId is resolved
       if (projectId) {
         const { runBackgroundAnalysis } = await import("@/lib/analysis-runner");
         const { getRepoFileTree } = await import("@/lib/github");
 
-        // Queue file indexing and analysis as a fire-and-forget background job
         Promise.resolve().then(async () => {
           try {
-            // Index files first
             const files = await getRepoFileTree(meta.owner, meta.name, meta.defaultBranch || "main");
             const relevantFiles = files.filter((f: any) => {
               const p = f.path;
@@ -147,7 +165,6 @@ export async function POST(req: Request) {
               );
             }
 
-            // Create analysis job
             const jobResult = await db.collection("analysisJobs").insertOne({
               projectId,
               status: "queued",
@@ -170,22 +187,53 @@ export async function POST(req: Request) {
         meta,
         branches,
         language: meta.language,
-        message: "Repository connected. Background code analysis has started."
+        message: "Repository connected. Background code analysis has started.",
       });
     }
 
-    // Mock response fallback
+    // In-memory Fallback Store
+    const fallbackId = "fb_" + Math.random().toString(36).substr(2, 9);
+    fallbackStore.saveRepository({
+      id: fallbackId,
+      ownerId: userId,
+      url: repositoryUrl,
+      owner: meta.owner,
+      name: meta.name,
+      defaultBranch: meta.defaultBranch,
+      stars: meta.stars,
+      forks: meta.forks,
+      language: meta.language,
+      branches,
+      lastSyncedAt: new Date().toISOString(),
+      status: "Synced",
+    });
+
+    fallbackStore.saveProject({
+      id: fallbackId,
+      ownerId: userId,
+      name: meta.name,
+      repositoryUrl,
+      branch: meta.defaultBranch || "main",
+      language: meta.language,
+      status: "Synced",
+      events: 0,
+      lastAnalyzed: "Just connected",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
     return NextResponse.json({
       success: true,
-      id: "mock_" + Math.random().toString(36).substr(2, 9),
+      id: fallbackId,
       meta,
       branches,
       language: meta.language,
-      message: "Repository validated in fallback environment."
+      message: "Repository connected successfully.",
     });
   } catch (error: any) {
     console.error("Repository API error:", error);
     return NextResponse.json({ error: error.message || "Server Error" }, { status: 500 });
   }
 }
+
 

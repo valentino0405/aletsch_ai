@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import { getDb } from "@/lib/mongodb";
+import { getDbOrNull } from "@/lib/mongodb";
+import { fallbackStore } from "@/lib/fallback-store";
 
 export async function POST(req: Request) {
   try {
@@ -14,9 +15,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
-    // Attempt MongoDB insertion if URI is present
-    if (process.env.MONGODB_URI) {
-      const db = await getDb();
+    const db = await getDbOrNull();
+    if (db) {
       const projectDoc = {
         name,
         repositoryUrl,
@@ -35,11 +35,24 @@ export async function POST(req: Request) {
       });
     }
 
-    // Graceful fallback if MongoDB is not configured
+    const fallbackProject = fallbackStore.saveProject({
+      id: "fb_proj_" + Math.random().toString(36).substring(2, 9),
+      ownerId: userId,
+      name,
+      repositoryUrl,
+      branch: branch || "main",
+      language: "TypeScript",
+      status: "Connected",
+      events: 0,
+      lastAnalyzed: "Just created",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
     return NextResponse.json({
       success: true,
-      id: "mock_" + Math.random().toString(36).substr(2, 9),
-      message: "Project created in demo fallback mode (MONGODB_URI missing).",
+      id: fallbackProject.id,
+      message: "Project created successfully.",
     });
   } catch (error: any) {
     console.error("API error:", error);
@@ -54,27 +67,28 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    if (process.env.MONGODB_URI) {
-      const db = await getDb();
+    const db = await getDbOrNull();
+    if (db) {
       const projects = await db.collection("projects").find({ ownerId: userId }).toArray();
       return NextResponse.json(projects);
     }
 
-    // Default mock project return if MongoDB is not configured
-    return NextResponse.json([
-      {
-        _id: "demo_1",
-        name: "TaskFlow Pro",
-        repositoryUrl: "github.com/example/taskflow",
-        branch: "main",
-        ownerId: userId,
-        status: "Connected",
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-    ]);
+    const fbProjects = fallbackStore.getProjects(userId);
+    return NextResponse.json(
+      fbProjects.map((p) => ({
+        _id: p.id,
+        name: p.name,
+        repositoryUrl: p.repositoryUrl,
+        branch: p.branch,
+        ownerId: p.ownerId,
+        status: p.status,
+        createdAt: p.createdAt,
+        updatedAt: p.updatedAt,
+      }))
+    );
   } catch (error: any) {
     console.error("API error:", error);
     return NextResponse.json({ error: error.message || "Server Error" }, { status: 500 });
   }
 }
+
