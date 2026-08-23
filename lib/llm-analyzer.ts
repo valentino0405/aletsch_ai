@@ -69,7 +69,7 @@ function fallbackHeuristics(components: any[]) {
     ],
     componentsWithEvents: components.map(c => ({
       ...c,
-      recommendedEvent: \`\${c.type?.toLowerCase().replace(' ', '_') || 'event'}_\${c.name.toLowerCase().replace('.tsx', '')}\`
+      recommendedEvent: `${c.type?.toLowerCase().replace(' ', '_') || 'event'}_${c.name.toLowerCase().replace('.tsx', '')}`
     }))
   };
 }

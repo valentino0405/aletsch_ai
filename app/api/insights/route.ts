@@ -36,7 +36,7 @@ export async function GET(req: Request) {
     if (insights.length === 0 && projectId) {
       const newInsight = await generateProjectInsights(projectId);
       if (newInsight) {
-        insights = [newInsight];
+        insights = [newInsight as any];
       }
     }
 

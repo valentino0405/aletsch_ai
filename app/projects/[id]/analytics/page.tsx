@@ -32,7 +32,10 @@ export default function ProjectAnalyticsPage({ params }: { params: Promise<{ id:
 
         // Load detected components from analysis
         const cRes = await fetch(`/api/instrumentation?projectId=${projectId}`);
-        if (cRes.ok) setComponents(await cRes.json());
+        if (cRes.ok) {
+          const compData = await cRes.json();
+          setComponents(Array.isArray(compData) ? compData : compData.components || []);
+        }
 
         // Load AI insights for this project
         const iRes = await fetch(`/api/insights?projectId=${projectId}`);

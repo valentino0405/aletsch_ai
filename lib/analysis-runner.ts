@@ -1,212 +1,287 @@
+// ============================================================
+// Aletsch AI — Analysis Runner
+// Background pipeline: fetch files → AST parse → store results
+// ============================================================
+
 import { getDb } from "./mongodb";
 import { parseGitHubUrl, getRawFileContent } from "./github";
-import { analyzeSourceContent, ComponentMetadata } from "./analyzer";
-import { AIService } from "./ai/client";
-import { SYSTEM_INTENT_PROMPT, buildComponentIntentUserPrompt } from "./ai/prompts";
+import { parseFile } from "./ast/interaction-detector";
+import { extractRoutes } from "./ast/route-detector";
 import { ObjectId } from "mongodb";
 
-export async function runBackgroundAnalysis(projectId: string, jobId: string) {
-  console.log(`Starting background analysis for project: ${projectId}, Job: ${jobId}`);
-  
-  const hasMongo = !!process.env.MONGODB_URI;
-  if (!hasMongo) return;
+// File extensions to analyze
+const ANALYZABLE_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx"];
 
-  let db;
-  try {
-    db = await getDb();
-  } catch (e) {
-    console.error("Could not obtain database connection for analysis runner", e);
+// Paths to skip
+const SKIP_PATTERNS = [
+  "node_modules/",
+  ".next/",
+  "dist/",
+  "build/",
+  ".git/",
+  "coverage/",
+  "__tests__/",
+  ".test.",
+  ".spec.",
+  ".stories.",
+  "public/",
+  ".min.js",
+  ".d.ts",
+];
+
+function shouldAnalyzeFile(filePath: string): boolean {
+  const ext = "." + filePath.split(".").pop();
+  if (!ANALYZABLE_EXTENSIONS.includes(ext)) return false;
+  if (SKIP_PATTERNS.some((p) => filePath.includes(p))) return false;
+  return true;
+}
+
+export async function runBackgroundAnalysis(projectId: string, jobId: string) {
+  console.log(`[Analysis] Starting for project: ${projectId}, job: ${jobId}`);
+
+  if (!process.env.MONGODB_URI) {
+    console.warn("[Analysis] MONGODB_URI not set — skipping.");
     return;
   }
 
-  const jobObjectId = new ObjectId(jobId);
-  const projectObjectId = new ObjectId(projectId);
+  let db: Awaited<ReturnType<typeof getDb>>;
+  try {
+    db = await getDb();
+  } catch (e) {
+    console.error("[Analysis] Cannot connect to MongoDB:", e);
+    return;
+  }
+
+  let jobObjectId: ObjectId;
+  let projectObjectId: ObjectId;
 
   try {
-    // 1. Update job to running
-    await db.collection("analysisJobs").updateOne(
-      { _id: jobObjectId },
-      { $set: { status: "running", progress: 10, currentStep: "Fetching source files list..." } }
-    );
+    jobObjectId = new ObjectId(jobId);
+    projectObjectId = new ObjectId(projectId);
+  } catch {
+    console.error("[Analysis] Invalid jobId or projectId format");
+    return;
+  }
 
-    // Fetch project to parse URL
+  const updateJob = async (data: Record<string, unknown>) => {
+    try {
+      await db.collection("analysisJobs").updateOne({ _id: jobObjectId }, { $set: data });
+    } catch { /* ignore */ }
+  };
+
+  try {
+    await updateJob({ status: "running", progress: 5, currentStep: "Connecting to repository..." });
+
+    // ── 1. Load project ──────────────────────────────────────
     const project = await db.collection("projects").findOne({ _id: projectObjectId });
-    if (!project) {
-      throw new Error("Project not found in database.");
-    }
+    if (!project) throw new Error("Project not found in database.");
 
     const { owner, repo } = parseGitHubUrl(project.repositoryUrl);
     const branch = project.branch || "main";
 
-    // 2. Fetch list of synced files
-    const sourceFiles = await db.collection("sourceFiles").find({ projectId }).toArray();
-    if (sourceFiles.length === 0) {
-      // Complete early if no source files mapped
-      await db.collection("analysisJobs").updateOne(
-        { _id: jobObjectId },
-        { 
-          $set: { 
-            status: "completed", 
-            progress: 100, 
-            currentStep: "Sync finished. No relevant source files detected.",
-            completedAt: new Date().toISOString()
-          } 
-        }
-      );
+    await updateJob({ progress: 10, currentStep: "Loading indexed source file list..." });
+
+    // ── 2. Fetch stored sourceFiles ──────────────────────────
+    const allSourceFiles = await db.collection("sourceFiles").find({ projectId }).toArray();
+
+    // Filter to analyzable files only
+    const sourceFilesToAnalyze = allSourceFiles.filter((f) => shouldAnalyzeFile(f.path));
+
+    // Cap at 50 files to stay within GitHub rate limits
+    const filesToProcess = sourceFilesToAnalyze.slice(0, 50);
+    const totalFiles = filesToProcess.length;
+
+    if (totalFiles === 0) {
+      await updateJob({
+        status: "completed",
+        progress: 100,
+        currentStep: "No analyzable source files found.",
+        completedAt: new Date().toISOString(),
+      });
       await db.collection("projects").updateOne({ _id: projectObjectId }, { $set: { status: "Ready" } });
       return;
     }
 
-    // Limit to top 15 key files for performance and API quota safety
-    const filesToAnalyze = sourceFiles.slice(0, 15);
-    const totalFiles = filesToAnalyze.length;
-    const detectedComponents: any[] = [];
+    await updateJob({ progress: 15, currentStep: `Found ${totalFiles} source files to analyze. Fetching content...` });
 
-    // 3. Loop over files and run AST parsing
+    // ── 3. Fetch & parse each file ───────────────────────────
+    const allFilePaths: string[] = [];
+    const fileResults: ReturnType<typeof parseFile>[] = [];
+    const fetchErrors: Array<{ filePath: string; error: string }> = [];
+
     for (let i = 0; i < totalFiles; i++) {
-      const file = filesToAnalyze[i];
-      const progressPercent = Math.round(10 + (i / totalFiles) * 40); // 10% to 50%
-      
-      await db.collection("analysisJobs").updateOne(
-        { _id: jobObjectId },
-        { $set: { progress: progressPercent, currentStep: `Parsing code structure: ${file.path}` } }
-      );
+      const file = filesToProcess[i];
+      const progressPct = Math.round(15 + (i / totalFiles) * 55); // 15% → 70%
+
+      await updateJob({
+        progress: progressPct,
+        currentStep: `Parsing [${i + 1}/${totalFiles}]: ${file.path.split("/").pop()}`,
+      });
+
+      allFilePaths.push(file.path);
 
       try {
         const content = await getRawFileContent(owner, repo, branch, file.path);
-        const components = analyzeSourceContent(file.path, content);
-        detectedComponents.push(...components);
-      } catch (err) {
-        console.error(`Error loading or parsing file content for: ${file.path}`, err);
-      }
-    }
 
-    // Update progress to 50%
-    await db.collection("analysisJobs").updateOne(
-      { _id: jobObjectId },
-      { $set: { progress: 50, currentStep: `Detected ${detectedComponents.length} component candidates. Commencing semantic intent analysis...` } }
-    );
-
-    // Clear old components mapping for this project
-    await db.collection("components").deleteMany({ projectId });
-
-    const totalComponents = detectedComponents.length;
-    const aiConfigured = AIService.isConfigured();
-
-    // 4. Run semantic intent detection on components
-    for (let i = 0; i < totalComponents; i++) {
-      const comp = detectedComponents[i];
-      const progressPercent = Math.round(50 + (i / totalComponents) * 45); // 50% to 95%
-      
-      await db.collection("analysisJobs").updateOne(
-        { _id: jobObjectId },
-        { $set: { progress: progressPercent, currentStep: `Analyzing intent: ${comp.name} (${comp.type})` } }
-      );
-
-      let semanticResult: any = null;
-
-      if (aiConfigured) {
-        // Fetch semantic intent using OpenRouter AI
-        const systemPrompt = SYSTEM_INTENT_PROMPT;
-        const userPrompt = buildComponentIntentUserPrompt(comp);
-
-        semanticResult = await AIService.generateStructured(
-          systemPrompt,
-          userPrompt,
-          (parsed) => {
-            // Validator function to ensure expected schema is present
-            if (!parsed.eventName || !parsed.category) return null;
-            return {
-              componentName: parsed.componentName || comp.name,
-              category: parsed.category,
-              intent: parsed.intent || "",
-              eventName: parsed.eventName,
-              importance: parsed.importance || "medium",
-              funnelStage: parsed.funnelStage || "general"
-            };
-          }
-        );
-      }
-
-      // Fallback to deterministic defaults if AI is not configured or failed
-      if (!semanticResult) {
-        let suggestedEvent = comp.name.toLowerCase().replace(/button|link|form/g, "");
-        suggestedEvent = suggestedEvent ? `${suggestedEvent}_clicked` : "cta_interacted";
-        
-        let category: "Pageview" | "Interaction" | "Form" | "System" | "Conversion" = "Interaction";
-        if (comp.type === "Form") {
-          category = "Form";
-          suggestedEvent = "form_submitted";
-        } else if (comp.type === "Navigation") {
-          category = "Pageview";
-          suggestedEvent = "page_viewed";
+        // Skip very large files (> 500KB)
+        if (content.length > 500_000) {
+          fetchErrors.push({ filePath: file.path, error: "File too large (>500KB)" });
+          continue;
         }
 
-        semanticResult = {
-          componentName: comp.name,
-          category,
-          intent: `User interacts with ${comp.type} control.`,
-          eventName: suggestedEvent,
-          importance: comp.type === "Form" ? "high" : "medium",
-          funnelStage: "general"
-        };
+        const parsed = parseFile(file.path, content);
+        fileResults.push(parsed);
+      } catch (err: any) {
+        fetchErrors.push({ filePath: file.path, error: err?.message || "Fetch failed" });
       }
-
-      // Save component record to MongoDB
-      await db.collection("components").insertOne({
-        projectId,
-        name: semanticResult.componentName,
-        type: comp.type,
-        filePath: comp.filePath,
-        route: comp.route,
-        elementText: comp.elementText || "",
-        codeSnippet: comp.codeSnippet,
-        handlers: comp.handlers,
-        semanticIntent: semanticResult.intent,
-        recommendedEvent: semanticResult.eventName,
-        importance: semanticResult.importance,
-        funnelStage: semanticResult.funnelStage,
-        createdAt: new Date().toISOString()
-      });
     }
 
-    // 5. Set job to completed successfully
-    await db.collection("analysisJobs").updateOne(
-      { _id: jobObjectId },
-      { 
-        $set: { 
-          status: "completed", 
-          progress: 100, 
-          currentStep: `AST analysis & event mappings successfully completed. Mapped ${totalComponents} components.`,
-          completedAt: new Date().toISOString()
-        } 
+    await updateJob({ progress: 72, currentStep: "Aggregating analysis results..." });
+
+    // ── 4. Aggregate results ─────────────────────────────────
+    const successfulResults = fileResults.filter((r) => r.success);
+    const failedResults = fileResults.filter((r) => !r.success);
+    const allErrors = [
+      ...failedResults.map((r) => ({ filePath: r.filePath, error: r.error || "Parse failed" })),
+      ...fetchErrors,
+    ];
+
+    const allInteractions = successfulResults.flatMap((r) => r.interactions);
+    const allComponents = successfulResults.flatMap((r) => r.components);
+    const allRoutes = extractRoutes(allFilePaths);
+
+    // Deduplicate components by name+file
+    const uniqueComponents = new Map<string, (typeof allComponents)[0]>();
+    for (const c of allComponents) {
+      uniqueComponents.set(`${c.filePath}::${c.name}`, c);
+    }
+    const componentsList = Array.from(uniqueComponents.values());
+
+    // Attach interaction counts to components
+    const componentInteractionCount = new Map<string, number>();
+    for (const interaction of allInteractions) {
+      const key = `${interaction.filePath}::${interaction.componentName}`;
+      componentInteractionCount.set(key, (componentInteractionCount.get(key) || 0) + 1);
+    }
+    for (const comp of componentsList) {
+      comp.interactionCount = componentInteractionCount.get(`${comp.filePath}::${comp.name}`) || 0;
+    }
+
+    await updateJob({ progress: 80, currentStep: "Saving results to database..." });
+
+    // ── 5. Persist results to MongoDB ────────────────────────
+
+    // Clear old data for this project
+    await Promise.all([
+      db.collection("components").deleteMany({ projectId }),
+      db.collection("detectedInteractions").deleteMany({ projectId }),
+      db.collection("repositoryAnalysis").deleteMany({ projectId }),
+    ]);
+
+    const analysisDoc = {
+      projectId,
+      status: allErrors.length > 0 ? "completed_with_warnings" : "completed",
+      filesScanned: totalFiles + fetchErrors.length,
+      filesParsed: successfulResults.length,
+      filesSkipped: allErrors.length,
+      parseErrors: allErrors.length,
+      componentsDetected: componentsList.length,
+      routesDetected: allRoutes.length,
+      interactionsDetected: allInteractions.length,
+      routes: allRoutes,
+      errors: allErrors.slice(0, 20), // cap stored errors at 20
+      startedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+    };
+
+    const analysisResult = await db.collection("repositoryAnalysis").insertOne(analysisDoc);
+    const analysisId = analysisResult.insertedId.toString();
+
+    // Store components (richer format)
+    if (componentsList.length > 0) {
+      await db.collection("components").insertMany(
+        componentsList.map((c) => ({
+          projectId,
+          analysisId,
+          name: c.name,
+          filePath: c.filePath,
+          route: c.route,
+          lineNumber: c.lineNumber,
+          isDefaultExport: c.isDefaultExport,
+          interactionCount: c.interactionCount,
+          createdAt: new Date().toISOString(),
+        }))
+      );
+    }
+
+    // Store detected interactions
+    if (allInteractions.length > 0) {
+      await db.collection("detectedInteractions").insertMany(
+        allInteractions.map((interaction) => ({
+          projectId,
+          analysisId,
+          type: interaction.type,
+          label: interaction.label,
+          eventName: interaction.eventName,
+          handler: interaction.handler,
+          componentName: interaction.componentName,
+          filePath: interaction.filePath,
+          route: interaction.route,
+          lineNumber: interaction.lineNumber,
+          confidence: interaction.confidence,
+          detectionMethod: interaction.detectionMethod,
+          metadata: interaction.metadata || {},
+          createdAt: new Date().toISOString(),
+        }))
+      );
+    }
+
+    await updateJob({ progress: 95, currentStep: "Finalizing..." });
+
+    // ── 6. Complete job ──────────────────────────────────────
+    const summaryMsg =
+      allErrors.length > 0
+        ? `Analysis complete with warnings. ${successfulResults.length} files parsed, ${allErrors.length} skipped. ${allInteractions.length} interactions detected.`
+        : `Analysis complete. ${successfulResults.length} files parsed. ${componentsList.length} components, ${allRoutes.length} routes, ${allInteractions.length} interactions detected.`;
+
+    await updateJob({
+      status: "completed",
+      progress: 100,
+      currentStep: summaryMsg,
+      completedAt: new Date().toISOString(),
+      analysisId,
+      filesScanned: totalFiles + fetchErrors.length,
+      filesParsed: successfulResults.length,
+      interactionsDetected: allInteractions.length,
+      componentsDetected: componentsList.length,
+      routesDetected: allRoutes.length,
+    });
+
+    await db.collection("projects").updateOne(
+      { _id: projectObjectId },
+      {
+        $set: {
+          status: "Ready",
+          lastAnalyzed: new Date().toISOString(),
+          interactionsDetected: allInteractions.length,
+          componentsDetected: componentsList.length,
+        },
       }
     );
 
-    // Set project status to Ready
-    await db.collection("projects").updateOne(
-      { _id: projectObjectId },
-      { $set: { status: "Ready" } }
-    );
-
+    console.log(`[Analysis] Completed: ${allInteractions.length} interactions, ${componentsList.length} components.`);
   } catch (error: any) {
-    console.error("Job Runner Failed:", error);
-    await db.collection("analysisJobs").updateOne(
-      { _id: jobObjectId },
-      { 
-        $set: { 
-          status: "failed", 
-          progress: 100, 
-          currentStep: "Analysis halted.",
-          error: error.message || "Unknown error",
-          completedAt: new Date().toISOString()
-        } 
-      }
-    );
-
-    await db.collection("projects").updateOne(
-      { _id: projectObjectId },
-      { $set: { status: "Error" } }
-    );
+    console.error("[Analysis] Fatal error:", error);
+    try {
+      await updateJob({
+        status: "failed",
+        progress: 100,
+        currentStep: `Analysis failed: ${error.message || "Unknown error"}`,
+        error: error.message,
+        completedAt: new Date().toISOString(),
+      });
+      await db.collection("projects").updateOne({ _id: projectObjectId }, { $set: { status: "Error" } });
+    } catch { /* ignore cleanup errors */ }
   }
 }

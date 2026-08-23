@@ -68,7 +68,7 @@ export default function FunnelAnalysis() {
           </div>
 
           <div className="space-y-4">
-            {funnelSteps.map((step) => (
+            {funnelSteps.map((step: any) => (
               <div key={step.step} className="flex items-center gap-4">
                 <div className="w-28 text-xs font-semibold text-zinc-400 truncate">
                   {step.name}

@@ -2,17 +2,22 @@ import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { getDbOrNull } from "@/lib/mongodb";
 import { fallbackStore } from "@/lib/fallback-store";
+import { ObjectId } from "mongodb";
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const { userId } = await auth();
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const { searchParams } = new URL(req.url);
+    const projectIdParam = searchParams.get("projectId");
+
     const db = await getDbOrNull();
     if (!db) {
       const fbRepos = fallbackStore.getRepositories(userId);
+      const fbProjects = fallbackStore.getProjects(userId);
       return NextResponse.json({
         totalUsers: "0",
         eventsTracked: "0",
@@ -23,6 +28,7 @@ export async function GET() {
         atRiskDropoffs: 0,
         funnel: [],
         topEvents: [],
+        projects: fbProjects.map((p) => ({ id: p.id, name: p.name })),
         recentActivity: fbRepos.map((r) => ({
           desc: `Repository connected: ${r.name}`,
           time: "Just now",
@@ -38,30 +44,52 @@ export async function GET() {
       });
     }
 
-    // Fetch projects to scope queries
-    const projects = await db.collection("projects").find({ ownerId: userId }).toArray();
-    const projectIds = projects.map(p => p._id.toString());
+    // Fetch all user projects
+    const allProjects = await db.collection("projects").find({ ownerId: userId }).toArray();
+    const projectsMeta = allProjects.map((p) => ({
+      id: p._id.toString(),
+      name: p.name,
+      status: p.status,
+      repositoryUrl: p.repositoryUrl,
+    }));
+
+    // Scope to selected project or all projects
+    let projectIds: string[];
+    if (projectIdParam) {
+      // Verify ownership
+      const owned = allProjects.find(
+        (p) => p._id.toString() === projectIdParam
+      );
+      projectIds = owned ? [projectIdParam] : [];
+    } else {
+      projectIds = allProjects.map((p) => p._id.toString());
+    }
+
+    const projects = allProjects;
 
 
-      if (projectIds.length === 0) {
-        // Return blank dashboard structure if user has no projects
-        return NextResponse.json({
-          totalUsers: 0,
-          eventsTracked: 0,
-          conversionRate: "0.0%",
-          averageSessionTime: "0s",
-          atRiskDropoffs: 0,
-          funnel: [],
-          topEvents: [],
-          recentActivity: [],
-          systemHealth: {
-            repoConnection: 100,
-            eventProcessing: 100,
-            aiAnalysis: 100,
-            dashboardService: 100
-          }
-        });
-      }
+    if (projectIds.length === 0) {
+      return NextResponse.json({
+        totalUsers: 0,
+        eventsTracked: 0,
+        componentsDetected: 0,
+        reposConnected: 0,
+        conversionRate: "0.0%",
+        averageSessionTime: "0s",
+        atRiskDropoffs: 0,
+        funnel: [],
+        topEvents: [],
+        recentActivity: [],
+        projects: projectsMeta,
+        selectedProject: null,
+        systemHealth: {
+          repoConnection: 0,
+          eventProcessing: 0,
+          aiAnalysis: 0,
+          dashboardService: 100,
+        },
+      });
+    }
 
       // 1. Total Users (Unique userIds in events)
       const uniqueUsersRes = await db.collection("events").distinct("userId", {
@@ -159,24 +187,51 @@ export async function GET() {
         });
       });
 
-      return NextResponse.json({
-        totalUsers: totalUsers.toLocaleString(),
-        eventsTracked: eventsCount.toLocaleString(),
-        componentsDetected: componentsCount,
-        reposConnected: reposCount,
-        conversionRate: "34.6%",
-        averageSessionTime: avgSessionTimeStr,
-        atRiskDropoffs: 0,
-        funnel: [],
-        topEvents: formattedTopEvents,
-        recentActivity: recentActivity.slice(0, 5),
-        systemHealth: {
-          repoConnection: reposCount > 0 ? 100 : 0,
-          eventProcessing: eventsCount > 0 ? 100 : 98,
-          aiAnalysis: componentsCount > 0 ? 100 : 60,
-          dashboardService: 100
-        }
-      });
+    // Fetch latest analysis summary for scoped projects
+    const latestAnalysis = await db
+      .collection("repositoryAnalysis")
+      .find({ projectId: { $in: projectIds } })
+      .sort({ createdAt: -1 })
+      .limit(1)
+      .toArray();
+    const analysisSummary = latestAnalysis[0] || null;
+
+    // Selected project info
+    const selectedProject = projectIdParam
+      ? projectsMeta.find((p) => p.id === projectIdParam) || null
+      : projectsMeta[0] || null;
+
+    return NextResponse.json({
+      totalUsers: totalUsers.toLocaleString(),
+      eventsTracked: eventsCount.toLocaleString(),
+      componentsDetected: analysisSummary?.interactionsDetected ?? componentsCount,
+      reposConnected: reposCount,
+      conversionRate: "34.6%",
+      averageSessionTime: avgSessionTimeStr,
+      atRiskDropoffs: 0,
+      funnel: [],
+      topEvents: formattedTopEvents,
+      recentActivity: recentActivity.slice(0, 5),
+      projects: projectsMeta,
+      selectedProject,
+      analysis: analysisSummary
+        ? {
+            filesScanned: analysisSummary.filesScanned,
+            filesParsed: analysisSummary.filesParsed,
+            componentsDetected: analysisSummary.componentsDetected,
+            routesDetected: analysisSummary.routesDetected,
+            interactionsDetected: analysisSummary.interactionsDetected,
+            status: analysisSummary.status,
+            completedAt: analysisSummary.completedAt,
+          }
+        : null,
+      systemHealth: {
+        repoConnection: reposCount > 0 ? 100 : 0,
+        eventProcessing: eventsCount > 0 ? 100 : 98,
+        aiAnalysis: componentsCount > 0 ? 100 : 60,
+        dashboardService: 100,
+      },
+    });
 
   } catch (error: any) {
     console.error("Dashboard API error:", error);
