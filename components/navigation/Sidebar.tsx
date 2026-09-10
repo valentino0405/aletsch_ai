@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { UserButton } from "@clerk/nextjs";
+import { UserButton, useUser } from "@clerk/nextjs";
+import { useEffect, useState } from "react";
 import {
   LayoutDashboard,
   FolderKanban,
@@ -42,6 +43,15 @@ const navItems = [
 
 export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
   const pathname = usePathname();
+  const { user } = useUser();
+  const [activeProject, setActiveProject] = useState<any>(null);
+
+  useEffect(() => {
+    fetch("/api/projects")
+      .then((response) => (response.ok ? response.json() : []))
+      .then((projects) => setActiveProject(Array.isArray(projects) ? projects[0] || null : null))
+      .catch(() => setActiveProject(null));
+  }, [pathname]);
 
   return (
     <aside
@@ -124,20 +134,20 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                 Live
               </span>
             </div>
-            <h4 className="text-xs font-bold text-white mb-0.5">TaskFlow Pro</h4>
+            <h4 className="text-xs font-bold text-white mb-0.5">{activeProject?.name || "No project connected"}</h4>
             <div className="text-[10px] text-zinc-400 font-mono truncate flex items-center gap-1">
-              <Terminal size={10} className="text-zinc-500" /> github.com/example/taskflow
+              <Terminal size={10} className="text-zinc-500" /> {activeProject?.repositoryUrl || "Connect a repository"}
             </div>
             <div className="text-[10px] text-zinc-500 mt-1 flex items-center gap-2">
-              <span>Branch: <span className="text-zinc-400 font-mono">main</span></span>
+              <span>Branch: <span className="text-zinc-400 font-mono">{activeProject?.branch || "-"}</span></span>
             </div>
             <a
-              href="https://github.com/example/taskflow"
+              href={activeProject?.repositoryUrl || "/repositories"}
               target="_blank"
               rel="noreferrer"
               className="mt-2 text-[10px] text-indigo-400 flex items-center gap-1 hover:text-indigo-300 font-medium transition"
             >
-              View Repository <ExternalLink size={10} />
+              {activeProject ? "View Repository" : "Connect Repository"} <ExternalLink size={10} />
             </a>
           </div>
         )}
@@ -155,7 +165,7 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
             {isOpen && (
               <div className="flex flex-col text-left overflow-hidden">
                 <span className="text-xs font-semibold text-white truncate">
-                  Aarav Sharma
+                  {user?.fullName || user?.firstName || "Project Owner"}
                 </span>
                 <span className="text-[10px] text-zinc-500 truncate">
                   Project Owner

@@ -8,6 +8,10 @@ export default function Alerts() {
   const [alerts, setAlerts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const acknowledge = (id: string) => {
+    setAlerts((current) => current.filter((alert) => alert.id !== id));
+  };
+
   useEffect(() => {
     async function loadAlerts() {
       try {
@@ -64,7 +68,7 @@ export default function Alerts() {
 
               <div className="text-right self-end sm:self-start">
                 <span className="text-xs text-zinc-500 font-semibold block">{al.time}</span>
-                <button className="text-xs text-indigo-400 hover:text-indigo-300 font-semibold mt-3 cursor-pointer">
+                  <button onClick={() => acknowledge(al.id)} className="text-xs text-indigo-400 hover:text-indigo-300 font-semibold mt-3 cursor-pointer">
                   Acknowledge
                 </button>
               </div>
