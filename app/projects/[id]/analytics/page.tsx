@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, use } from "react";
+import { useState, useEffect, use, useRef } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "@/components/navigation/DashboardLayout";
 import {
@@ -19,8 +19,11 @@ export default function ProjectAnalyticsPage({ params }: { params: Promise<{ id:
   const [syncing, setSyncing] = useState(false);
   const [analysisStatus, setAnalysisStatus] = useState<string>("idle");
   const [generatingInsights, setGeneratingInsights] = useState(false);
+  const loadingRequest = useRef(false);
 
   async function loadAnalytics() {
+    if (loadingRequest.current) return;
+    loadingRequest.current = true;
     try {
       const [pRes, cRes, iRes, sRes] = await Promise.all([
         fetch("/api/projects"),
@@ -44,6 +47,8 @@ export default function ProjectAnalyticsPage({ params }: { params: Promise<{ id:
       }
     } catch (err) {
       console.error("Failed to load project analytics:", err);
+    } finally {
+      loadingRequest.current = false;
     }
   }
 
@@ -60,13 +65,18 @@ export default function ProjectAnalyticsPage({ params }: { params: Promise<{ id:
     }
     load();
 
+    return () => undefined;
+  }, [projectId]);
+
+  useEffect(() => {
+    const isActive = analysisStatus === "queued" || analysisStatus === "running" || analysisStatus === "Analyzing";
+    if (!isActive) return;
+
     const poll = window.setInterval(() => {
-      if (analysisStatus === "queued" || analysisStatus === "running" || analysisStatus === "Analyzing" || components.length === 0) {
-        loadAnalytics();
-      }
+      loadAnalytics();
     }, 2500);
     return () => window.clearInterval(poll);
-  }, [projectId]);
+  }, [projectId, analysisStatus]);
 
   const handleSync = async () => {
     setSyncing(true);
