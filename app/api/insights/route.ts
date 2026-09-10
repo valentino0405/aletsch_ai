@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { getDb, getDbOrNull } from "@/lib/mongodb";
 import { fallbackStore } from "@/lib/fallback-store";
 import { generateProjectInsights } from "@/lib/insight-runner";
+import { ObjectId } from "mongodb";
 
 export async function GET(req: Request) {
   try {
@@ -110,7 +111,12 @@ export async function POST(req: Request) {
         message: "Fallback analysis insights generated.",
       });
     }
-    const project = await db.collection("projects").findOne({ _id: projectId as any, ownerId: userId });
+    let project;
+    try {
+      project = await db.collection("projects").findOne({ _id: new ObjectId(projectId), ownerId: userId });
+    } catch {
+      project = await db.collection("projects").findOne({ _id: projectId as any, ownerId: userId });
+    }
     if (!project) {
       return NextResponse.json({ error: "Project not found or unauthorized access." }, { status: 404 });
     }
