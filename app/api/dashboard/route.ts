@@ -190,6 +190,31 @@ export async function GET(req: Request) {
         cat: e.category || "Interaction"
       }));
 
+      const funnelDefinition = [
+        { name: "Landing Page", event: "page_view" },
+        { name: "Sign Up", event: "sign_up" },
+        { name: "Login", event: "login" },
+        { name: "Create Task", event: "task_created" },
+        { name: "Task Completed", event: "task_completed" },
+      ];
+      const funnelCounts: Array<{ name: string; users: number }> = [];
+      for (const step of funnelDefinition) {
+        const users = await db.collection("events").distinct("userId", {
+          projectId: { $in: projectIds },
+          eventName: step.event,
+        });
+        funnelCounts.push({ name: step.name, users: users.length });
+      }
+      const funnelBase = funnelCounts[0]?.users || 0;
+      const funnel = funnelCounts.map((step, index) => {
+        const previousUsers = index > 0 ? funnelCounts[index - 1].users : step.users;
+        const percent = funnelBase > 0 ? Math.round((step.users / funnelBase) * 1000) / 10 : 0;
+        const drop = index > 0 && funnelBase > 0
+          ? Math.round(((previousUsers - step.users) / funnelBase) * 1000) / 10
+          : 0;
+        return { ...step, percent, drop, active: true };
+      });
+
       // 7. Recent Activity — pull from analysis jobs for real activity
       const recentJobs = await db.collection("analysisJobs")
         .find({ projectId: { $in: projectIds } })
@@ -251,7 +276,7 @@ export async function GET(req: Request) {
       conversionRate: "34.6%",
       averageSessionTime: avgSessionTimeStr,
       atRiskDropoffs: 0,
-      funnel: [],
+      funnel,
       topEvents: formattedTopEvents,
       recentActivity: recentActivity.slice(0, 5),
       projects: projectsMeta,
