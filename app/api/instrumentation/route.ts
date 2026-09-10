@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { getDbOrNull } from "@/lib/mongodb";
 import { ObjectId } from "mongodb";
+import { fallbackStore } from "@/lib/fallback-store";
 
 export async function GET(req: Request) {
   try {
@@ -17,11 +18,26 @@ export async function GET(req: Request) {
 
     const db = await getDbOrNull();
     if (!db) {
+      const result = projectId ? fallbackStore.getAnalysisResult(projectId) : null;
+      const components = result?.components || [];
+      const interactions = result?.interactions || [];
       return NextResponse.json({
-        components: [],
-        analysis: null,
-        interactions: [],
+        components: components.map((component: any, index: number) => ({
+          id: `fb_component_${index}`,
+          name: component.name,
+          type: component.route && component.route !== "(component)" ? "Page Layout" : "Component",
+          filePath: component.filePath,
+          route: component.route,
+          lineNumber: component.lineNumber,
+          interactionCount: component.interactionCount || 0,
+          status: "Instrumented",
+          progress: "100%",
+          events: interactions.filter((item: any) => item.componentName === component.name && item.filePath === component.filePath).map((item: any) => item.eventName),
+        })),
+        analysis: result ? { status: result.status, filesScanned: result.filesScanned, filesParsed: result.filesParsed, componentsDetected: components.length, interactionsDetected: interactions.length } : null,
+        interactions,
         grouped: [],
+        job: projectId ? fallbackStore.getLatestJob(projectId) || null : null,
       });
     }
 

@@ -3,7 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { getDbOrNull } from "@/lib/mongodb";
 import { parseGitHubUrl, getRepoFileTree } from "@/lib/github";
 import { ObjectId } from "mongodb";
-import { runBackgroundAnalysis } from "@/lib/analysis-runner";
+import { runBackgroundAnalysis, runFallbackAnalysis } from "@/lib/analysis-runner";
 import { fallbackStore } from "@/lib/fallback-store";
 
 export async function POST(
@@ -33,12 +33,22 @@ export async function POST(
           filesIndexedCount: 1,
         });
       }
+      const fbJobId = "fb_job_" + Math.random().toString(36).substring(2, 8);
+      fallbackStore.saveAnalysisJob({
+        id: fbJobId,
+        projectId,
+        status: "queued",
+        progress: 0,
+        currentStep: "Starting repository analysis...",
+        createdAt: new Date().toISOString(),
+      });
       fallbackStore.updateProjectStatus(fbProject.id, "Synced");
+      await runFallbackAnalysis(fbProject.id, fbJobId, fbProject.repositoryUrl, fbProject.branch);
       return NextResponse.json({
         success: true,
-        jobId: "fb_job_" + Math.random().toString(36).substring(2, 8),
-        status: "Synced",
-        filesIndexedCount: 1,
+        jobId: fbJobId,
+        status: "Analyzing",
+        filesIndexedCount: 0,
       });
     }
 

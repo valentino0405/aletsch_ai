@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/mongodb";
 import { ObjectId } from "mongodb";
+import { fallbackStore } from "@/lib/fallback-store";
 
 export async function POST(req: Request) {
   try {
@@ -24,7 +25,18 @@ export async function POST(req: Request) {
 
     const hasMongo = !!process.env.MONGODB_URI;
     if (!hasMongo) {
-      return NextResponse.json({ success: true, message: "Event ingested in mock mode." });
+      fallbackStore.addEvent({
+        ownerId: fallbackStore.getProjectById(projectId)?.ownerId || payload.ownerId || "anonymous",
+        projectId,
+        eventName,
+        category: category || "Interaction",
+        path: path || "/",
+        userId: userId || anonymousId || "anonymous",
+        sessionId: sessionId || "session_default",
+        timestamp: timestamp || new Date().toISOString(),
+        occurrences: 1,
+      });
+      return NextResponse.json({ success: true, message: "Event ingested in fallback mode." });
     }
 
     const db = await getDb();

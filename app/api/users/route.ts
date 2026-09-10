@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { getDb } from "@/lib/mongodb";
+import { getDbOrNull } from "@/lib/mongodb";
+import { fallbackStore } from "@/lib/fallback-store";
 
 export async function GET() {
   try {
@@ -9,18 +11,31 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const hasMongo = !!process.env.MONGODB_URI;
-    if (!hasMongo) {
-      // Mock users list fallback
-      return NextResponse.json([
-        { email: "john.doe@gmail.com", sessions: 12, events: 48, lastActive: "2m ago", funnel: "Task Completed", status: "Active" },
-        { email: "alice.s@live.com", sessions: 8, events: 32, lastActive: "15m ago", funnel: "Create Task", status: "Active" },
-        { email: "bob.dev@yahoo.com", sessions: 2, events: 8, lastActive: "1h ago", funnel: "Login", status: "Inactive" },
-        { email: "clara.w@outlook.com", sessions: 1, events: 2, lastActive: "2h ago", funnel: "Sign Up", status: "Inactive" },
-      ]);
+    const dbOrNull = await getDbOrNull();
+    if (!dbOrNull) {
+      const events = fallbackStore.getEvents(userId);
+      const grouped = new Map<string, any>();
+      for (const event of events) {
+        const current = grouped.get(event.userId) || { email: event.userId, sessions: new Set<string>(), events: 0, lastActive: event.timestamp, exitPath: event.path };
+        current.sessions.add(event.sessionId || "session_default");
+        current.events += 1;
+        if (new Date(event.timestamp).getTime() > new Date(current.lastActive).getTime()) {
+          current.lastActive = event.timestamp;
+          current.exitPath = event.path;
+        }
+        grouped.set(event.userId, current);
+      }
+      return NextResponse.json(Array.from(grouped.values()).map((item: any) => ({
+        email: item.email,
+        sessions: item.sessions.size,
+        events: item.events,
+        lastActive: "Recently",
+        funnel: item.exitPath || "Landing Page",
+        status: "Active",
+      })));
     }
 
-    const db = await getDb();
+    const db = dbOrNull;
 
     // Fetch projects to scope queries
     const projects = await db.collection("projects").find({ ownerId: userId }).toArray();

@@ -18,27 +18,69 @@ export async function GET(req: Request) {
     if (!db) {
       const fbRepos = fallbackStore.getRepositories(userId);
       const fbProjects = fallbackStore.getProjects(userId);
+      const scopedProjects = projectIdParam
+        ? fbProjects.filter((project) => project.id === projectIdParam)
+        : fbProjects;
+      const analysisResults = scopedProjects
+        .map((project) => fallbackStore.getAnalysisResult(project.id))
+        .filter(Boolean);
+      const fallbackEvents = fallbackStore
+        .getEvents(userId)
+        .filter((event) => scopedProjects.some((project) => project.id === event.projectId));
+      const interactions = analysisResults.flatMap((result: any) => result.interactions || []);
+      const componentsDetected = analysisResults.reduce(
+        (total: number, result: any) => total + (result.components?.length || 0),
+        0
+      );
+      const latestAnalysis: any = analysisResults[0] || null;
+      const topEvents = Array.from<[string, number]>(
+        interactions.reduce((counts: Map<string, number>, interaction: any) => {
+          counts.set(interaction.eventName, (counts.get(interaction.eventName) || 0) + 1);
+          return counts;
+        }, new Map<string, number>())
+      )
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([name, count]) => ({ name, count: String(count), cat: "Interaction" }));
+      const recentJobs = scopedProjects
+        .map((project) => fallbackStore.getLatestJob(project.id))
+        .filter(Boolean)
+        .sort((a: any, b: any) => String(b.createdAt).localeCompare(String(a.createdAt)));
       return NextResponse.json({
         totalUsers: "0",
-        eventsTracked: "0",
-        componentsDetected: 0,
+        eventsTracked: String(fallbackEvents.length || interactions.length),
+        componentsDetected,
         reposConnected: fbRepos.length,
         conversionRate: "0.0%",
         averageSessionTime: "0s",
         atRiskDropoffs: 0,
         funnel: [],
-        topEvents: [],
+        topEvents,
         projects: fbProjects.map((p) => ({ id: p.id, name: p.name })),
-        recentActivity: fbRepos.map((r) => ({
-          desc: `Repository connected: ${r.name}`,
-          time: "Just now",
+        selectedProject: scopedProjects[0]
+          ? { id: scopedProjects[0].id, name: scopedProjects[0].name, status: scopedProjects[0].status, repositoryUrl: scopedProjects[0].repositoryUrl }
+          : null,
+        analysis: latestAnalysis
+          ? {
+              filesScanned: latestAnalysis.filesScanned,
+              filesParsed: latestAnalysis.filesParsed,
+              componentsDetected: latestAnalysis.components?.length || 0,
+              routesDetected: latestAnalysis.routes?.length || 0,
+              interactionsDetected: interactions.length,
+              status: latestAnalysis.status,
+              completedAt: latestAnalysis.completedAt,
+            }
+          : null,
+        recentActivity: recentJobs.map((job: any) => ({
+          desc: job.currentStep || "Repository analysis completed",
+          time: "Recently",
           type: "sync",
-          status: "completed",
+          status: job.status,
         })),
         systemHealth: {
           repoConnection: 100,
-          eventProcessing: 100,
-          aiAnalysis: 100,
+          eventProcessing: fallbackEvents.length > 0 ? 100 : 60,
+          aiAnalysis: latestAnalysis ? 100 : 60,
           dashboardService: 100,
         },
       });

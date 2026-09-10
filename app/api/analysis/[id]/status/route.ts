@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { getDb } from "@/lib/mongodb";
 import { ObjectId } from "mongodb";
+import { fallbackStore } from "@/lib/fallback-store";
 
 export async function GET(
   req: Request,
@@ -20,7 +21,8 @@ export async function GET(
 
     const hasMongo = !!process.env.MONGODB_URI;
     if (!hasMongo) {
-      // Mock status return
+      const job = fallbackStore.getLatestJob(projectId);
+      if (job) return NextResponse.json(job);
       return NextResponse.json({
         projectId,
         status: "completed",

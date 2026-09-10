@@ -222,13 +222,25 @@ export async function POST(req: Request) {
       updatedAt: new Date().toISOString(),
     });
 
+    const fallbackJobId = "fb_job_" + Math.random().toString(36).substring(2, 8);
+    fallbackStore.saveAnalysisJob({
+      id: fallbackJobId,
+      projectId: fallbackId,
+      status: "queued",
+      progress: 0,
+      currentStep: "Starting repository analysis...",
+      createdAt: new Date().toISOString(),
+    });
+    const { runFallbackAnalysis } = await import("@/lib/analysis-runner");
+    await runFallbackAnalysis(fallbackId, fallbackJobId, repositoryUrl, meta.defaultBranch || "main");
+
     return NextResponse.json({
       success: true,
       id: fallbackId,
       meta,
       branches,
       language: meta.language,
-      message: "Repository connected successfully.",
+      message: "Repository connected. Background code analysis has started.",
     });
   } catch (error: any) {
     console.error("Repository API error:", error);

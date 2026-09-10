@@ -16,30 +16,42 @@ export default function ProjectAnalyticsPage({ params }: { params: Promise<{ id:
   const [components, setComponents] = useState<any[]>([]);
   const [insights, setInsights] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+  const [analysisStatus, setAnalysisStatus] = useState<string>("idle");
   const [generatingInsights, setGeneratingInsights] = useState(false);
+
+  async function loadAnalytics() {
+    try {
+      const [pRes, cRes, iRes, sRes] = await Promise.all([
+        fetch("/api/projects"),
+        fetch(`/api/instrumentation?projectId=${projectId}`),
+        fetch(`/api/insights?projectId=${projectId}`),
+        fetch(`/api/analysis/${projectId}/status`),
+      ]);
+
+      if (pRes.ok) {
+        const projects = await pRes.json();
+        setProject(projects.find((p: any) => (p._id || p.id) === projectId) || null);
+      }
+      if (cRes.ok) {
+        const compData = await cRes.json();
+        setComponents(Array.isArray(compData) ? compData : compData.components || []);
+      }
+      if (iRes.ok) setInsights(await iRes.json());
+      if (sRes.ok) {
+        const status = await sRes.json();
+        setAnalysisStatus(status.status || "idle");
+      }
+    } catch (err) {
+      console.error("Failed to load project analytics:", err);
+    }
+  }
 
   useEffect(() => {
     async function load() {
       setLoading(true);
       try {
-        // Load project details
-        const pRes = await fetch("/api/projects");
-        if (pRes.ok) {
-          const projects = await pRes.json();
-          const found = projects.find((p: any) => (p._id || p.id) === projectId);
-          setProject(found || null);
-        }
-
-        // Load detected components from analysis
-        const cRes = await fetch(`/api/instrumentation?projectId=${projectId}`);
-        if (cRes.ok) {
-          const compData = await cRes.json();
-          setComponents(Array.isArray(compData) ? compData : compData.components || []);
-        }
-
-        // Load AI insights for this project
-        const iRes = await fetch(`/api/insights?projectId=${projectId}`);
-        if (iRes.ok) setInsights(await iRes.json());
+        await loadAnalytics();
       } catch (err) {
         console.error("Failed to load project analytics:", err);
       } finally {
@@ -47,7 +59,25 @@ export default function ProjectAnalyticsPage({ params }: { params: Promise<{ id:
       }
     }
     load();
+
+    const poll = window.setInterval(() => {
+      if (analysisStatus === "queued" || analysisStatus === "running" || analysisStatus === "Analyzing" || components.length === 0) {
+        loadAnalytics();
+      }
+    }, 2500);
+    return () => window.clearInterval(poll);
   }, [projectId]);
+
+  const handleSync = async () => {
+    setSyncing(true);
+    try {
+      await fetch(`/api/repositories/${projectId}/sync`, { method: "POST" });
+      setAnalysisStatus("queued");
+      await loadAnalytics();
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const handleRegenerateInsights = async () => {
     setGeneratingInsights(true);
@@ -206,10 +236,11 @@ export default function ProjectAnalyticsPage({ params }: { params: Promise<{ id:
                     Trigger a fresh AST scan and re-map all detected components to events.
                   </p>
                   <button
-                    onClick={() => fetch(`/api/repositories/${projectId}/sync`, { method: "POST" })}
+                    onClick={handleSync}
+                    disabled={syncing}
                     className="w-full text-xs font-semibold bg-cyan-600/20 hover:bg-cyan-600/30 border border-cyan-500/30 text-cyan-300 rounded-lg py-2 transition cursor-pointer"
                   >
-                    Sync & Re-Analyze
+                    {syncing ? "Analyzing..." : "Sync & Re-Analyze"}
                   </button>
                 </div>
               </div>

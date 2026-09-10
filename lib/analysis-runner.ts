@@ -8,6 +8,7 @@ import { parseGitHubUrl, getRawFileContent } from "./github";
 import { parseFile } from "./ast/interaction-detector";
 import { extractRoutes } from "./ast/route-detector";
 import { ObjectId } from "mongodb";
+import { fallbackStore } from "./fallback-store";
 
 // File extensions to analyze
 const ANALYZABLE_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx"];
@@ -283,5 +284,75 @@ export async function runBackgroundAnalysis(projectId: string, jobId: string) {
       });
       await db.collection("projects").updateOne({ _id: projectObjectId }, { $set: { status: "Error" } });
     } catch { /* ignore cleanup errors */ }
+  }
+}
+
+export async function runFallbackAnalysis(projectId: string, jobId: string, repositoryUrl: string, branch: string) {
+  const job = (data: Record<string, unknown>) =>
+    fallbackStore.saveAnalysisJob({ ...fallbackStore.getJob(jobId), id: jobId, projectId, ...data });
+
+  try {
+    job({ status: "running", progress: 5, currentStep: "Loading repository files..." });
+    const { owner, repo } = parseGitHubUrl(repositoryUrl);
+    const { getRepoFileTree } = await import("./github");
+    const files = await getRepoFileTree(owner, repo, branch);
+    const analyzableFiles = files.filter((file) => file.type === "blob" && shouldAnalyzeFile(file.path)).slice(0, 50);
+    console.log(`[Fallback Analysis] ${repositoryUrl}: ${analyzableFiles.length} analyzable files found.`);
+    const allFilePaths = analyzableFiles.map((file) => file.path);
+    const parsedResults: ReturnType<typeof parseFile>[] = [];
+
+    for (let index = 0; index < analyzableFiles.length; index++) {
+      const file = analyzableFiles[index];
+      job({
+        progress: Math.round(15 + (index / Math.max(analyzableFiles.length, 1)) * 65),
+        currentStep: `Parsing [${index + 1}/${analyzableFiles.length}]: ${file.path.split("/").pop()}`,
+      });
+      try {
+        const content = await getRawFileContent(owner, repo, branch, file.path);
+        if (content.length <= 500_000) parsedResults.push(parseFile(file.path, content));
+      } catch {
+        // Continue when an individual raw file cannot be fetched.
+      }
+    }
+
+    const successfulResults = parsedResults.filter((result) => result.success);
+    const components = successfulResults.flatMap((result) => result.components);
+    const interactions = successfulResults.flatMap((result) => result.interactions);
+    const uniqueComponents = Array.from(
+      new Map(components.map((component) => [`${component.filePath}::${component.name}`, component])).values()
+    );
+    const interactionCounts = new Map<string, number>();
+    for (const interaction of interactions) {
+      const key = `${interaction.filePath}::${interaction.componentName}`;
+      interactionCounts.set(key, (interactionCounts.get(key) || 0) + 1);
+    }
+    const result = {
+      projectId,
+      status: "completed",
+      filesScanned: analyzableFiles.length,
+      filesParsed: successfulResults.length,
+      components: uniqueComponents.map((component) => ({
+        ...component,
+        interactionCount: interactionCounts.get(`${component.filePath}::${component.name}`) || 0,
+      })),
+      interactions,
+      routes: extractRoutes(allFilePaths),
+      completedAt: new Date().toISOString(),
+    };
+    fallbackStore.saveAnalysisResult(result);
+    fallbackStore.updateProjectStatus(projectId, "Ready");
+    job({
+      status: "completed",
+      progress: 100,
+      currentStep: `Analysis complete. ${result.filesParsed} files parsed, ${result.components.length} components, ${result.interactions.length} interactions detected.`,
+      completedAt: result.completedAt,
+      componentsDetected: result.components.length,
+      interactionsDetected: result.interactions.length,
+    });
+    console.log(`[Fallback Analysis] Completed: ${result.components.length} components, ${result.interactions.length} interactions.`);
+  } catch (error: any) {
+    console.error("[Fallback Analysis] Failed:", error);
+    fallbackStore.updateProjectStatus(projectId, "Error");
+    job({ status: "failed", progress: 100, currentStep: `Analysis failed: ${error.message || "Unknown error"}`, error: error.message });
   }
 }
