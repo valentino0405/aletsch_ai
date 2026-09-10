@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import DashboardLayout from "@/components/navigation/DashboardLayout";
 import { Settings as SettingsIcon, Shield, Sliders, Terminal, Bell } from "lucide-react";
 
@@ -11,6 +11,20 @@ export default function Settings() {
   const [saved, setSaved] = useState(false);
   const [funnelPredictions, setFunnelPredictions] = useState(true);
   const [alertEmails, setAlertEmails] = useState(true);
+
+  useEffect(() => {
+    const saved = localStorage.getItem("aletsch-settings");
+    if (!saved) return;
+    try {
+      const settings = JSON.parse(saved);
+      if (typeof settings.projectName === "string") setProjectName(settings.projectName);
+      if (typeof settings.branch === "string") setBranch(settings.branch);
+      if (typeof settings.funnelPredictions === "boolean") setFunnelPredictions(settings.funnelPredictions);
+      if (typeof settings.alertEmails === "boolean") setAlertEmails(settings.alertEmails);
+    } catch {
+      localStorage.removeItem("aletsch-settings");
+    }
+  }, []);
 
   const savePreferences = () => {
     localStorage.setItem("aletsch-settings", JSON.stringify({ projectName, branch, funnelPredictions, alertEmails }));
@@ -68,11 +82,9 @@ export default function Settings() {
 
           {/* Configuration Form */}
           <div className="lg:col-span-2 glow-card rounded-xl p-6 glow-indigo space-y-6">
-            <h3 className="text-sm font-bold text-white border-b border-zinc-900 pb-3">
-              {activeTab}
-            </h3>
+            <h3 className="text-sm font-bold text-white border-b border-zinc-900 pb-3">{activeTab}</h3>
 
-            <div className="space-y-4">
+            {activeTab === "General Settings" ? <div className="space-y-4">
               <div>
                 <label className="text-[10px] uppercase font-bold text-zinc-500 block mb-1">
                   Active Project Name
@@ -115,16 +127,27 @@ export default function Settings() {
                   <input type="checkbox" checked={alertEmails} onChange={(event) => setAlertEmails(event.target.checked)} className="accent-indigo-500" />
                 </div>
               </div>
-            </div>
+            </div> : (
+              <div className="rounded-lg border border-zinc-800 bg-zinc-950/50 p-5 text-sm text-zinc-400">
+                <p className="font-semibold text-white mb-2">{activeTab}</p>
+                <p>
+                  {activeTab === "Repository Configuration"
+                    ? "Manage repository connections and branches from the Repositories page."
+                    : activeTab === "Notification Preferences"
+                    ? "Notification preferences are stored locally for this browser."
+                    : "Authentication and tracking credentials are managed through Clerk and your deployment environment."}
+                </p>
+              </div>
+            )}
 
-            <div className="flex justify-end gap-3 pt-6 border-t border-zinc-900">
+            {activeTab === "General Settings" && <div className="flex justify-end gap-3 pt-6 border-t border-zinc-900">
               <button onClick={discardChanges} className="px-4 py-2 text-xs font-semibold text-zinc-400 hover:text-white transition cursor-pointer">
                 Discard Changes
               </button>
               <button onClick={savePreferences} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg shadow-md transition cursor-pointer">
                 {saved ? "Saved" : "Save Preferences"}
               </button>
-            </div>
+            </div>}
           </div>
         </div>
       </div>

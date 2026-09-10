@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import DashboardLayout from "@/components/navigation/DashboardLayout";
-import { BellRing, AlertTriangle, AlertCircle, Sparkles } from "lucide-react";
+import { BellRing, AlertTriangle, Loader2 } from "lucide-react";
 
 export default function Alerts() {
   const [alerts, setAlerts] = useState<any[]>([]);
@@ -43,7 +43,15 @@ export default function Alerts() {
         </div>
 
         <div className="space-y-4">
-          {alerts.map((al) => (
+          {loading ? (
+            <div className="flex items-center justify-center gap-2 py-16 text-sm text-zinc-500">
+              <Loader2 size={16} className="animate-spin" /> Loading alerts...
+            </div>
+          ) : alerts.length === 0 ? (
+            <div className="glow-card rounded-xl p-10 text-center text-sm text-zinc-500">
+              No active alerts.
+            </div>
+          ) : alerts.map((al) => (
             <div
               key={al.id}
               className={`glow-card rounded-xl p-5 border relative overflow-hidden flex flex-col sm:flex-row justify-between gap-4 ${al.colorClass}`}

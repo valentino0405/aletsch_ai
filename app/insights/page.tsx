@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import DashboardLayout from "@/components/navigation/DashboardLayout";
-import { BrainCircuit, AlertTriangle, Sparkles, TrendingUp, HelpCircle, CheckCircle2 } from "lucide-react";
+import { BrainCircuit, Loader2 } from "lucide-react";
 
 export default function Insights() {
   const [insights, setInsights] = useState<any[]>([]);
@@ -40,7 +40,15 @@ export default function Insights() {
 
         {/* Insights list */}
         <div className="space-y-6">
-          {insights.map((ins, idx) => (
+          {loading ? (
+            <div className="flex items-center justify-center gap-2 py-16 text-sm text-zinc-500">
+              <Loader2 size={16} className="animate-spin" /> Loading insights...
+            </div>
+          ) : insights.length === 0 ? (
+            <div className="glow-card rounded-xl p-10 text-center text-sm text-zinc-500">
+              No insights generated yet. Run an analysis or generate insights from a project analytics page.
+            </div>
+          ) : insights.map((ins, idx) => (
             <div
               key={idx}
               className={`glow-card rounded-xl p-6 border relative overflow-hidden flex flex-col justify-between ${ins.color}`}

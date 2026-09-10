@@ -14,14 +14,20 @@ export default function Projects() {
   const [branch, setBranch] = useState("main");
   const [loading, setLoading] = useState(false);
   const [syncingId, setSyncingId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState("");
 
   const handleSync = async (projectId: string) => {
     setSyncingId(projectId);
+    setActionError("");
     try {
-      await fetch(`/api/repositories/${projectId}/sync`, { method: "POST" });
+      const response = await fetch(`/api/repositories/${projectId}/sync`, { method: "POST" });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || "Project sync failed.");
+      }
       setProjects(prev => prev.map(p => p.id === projectId ? { ...p, status: "Ready" } : p));
-    } catch (err) {
-      console.error("Sync failed:", err);
+    } catch (err: any) {
+      setActionError(err.message || "Project sync failed.");
     } finally {
       setSyncingId(null);
     }
@@ -56,6 +62,7 @@ export default function Projects() {
   const handleAddProject = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setActionError("");
 
     // Call local route handler
     try {
@@ -84,28 +91,10 @@ export default function Projects() {
         setBranch("main");
         setShowAddModal(false);
       } else {
-        alert(data.error || "Failed to add project to MongoDB.");
+        setActionError(data.error || "Failed to add project.");
       }
-    } catch (err) {
-      console.error(err);
-      // Fallback update in case MongoDB is not configured in local environment
-      setProjects([
-        ...projects,
-        {
-          id: Math.random().toString(),
-          name,
-          framework: "Next.js",
-          repositoryUrl: repoUrl.replace("https://", ""),
-          status: "Connected",
-          lastAnalyzed: "Just Now",
-          events: "0",
-          users: "0",
-        },
-      ]);
-      setName("");
-      setRepoUrl("");
-      setBranch("main");
-      setShowAddModal(false);
+    } catch (err: any) {
+      setActionError(err.message || "Network error. Make sure the server is available.");
     } finally {
       setLoading(false);
     }
@@ -129,6 +118,12 @@ export default function Projects() {
             <span>Add Project</span>
           </button>
         </div>
+
+        {actionError && (
+          <div className="rounded-lg border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-xs text-rose-300">
+            {actionError}
+          </div>
+        )}
 
         {/* Project Cards Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
