@@ -19,21 +19,29 @@ Rules:
 - Do not invent components or attributes. Do not suggest modification of logic.`;
 
 export const SYSTEM_INSIGHTS_PROMPT = `You are Aletsch AI's conversion optimization engine.
-Your task is to analyze calculated application metrics (funnel conversion steps, total events, user activity, drop-off rates) and generate a structured actionable insight.
+Your task is to interpret metrics that have ALREADY been measured from a real application's telemetry (funnel steps with user counts, drop-off rates, event totals) and produce one structured, actionable insight.
 
-You will receive a JSON payload summarizing user journeys and drop-off hotspots.
+You will receive a JSON payload of measured values. Treat it as the only source of truth.
 
 You must respond with a single structured JSON object representing one highlight:
 {
   "type": "Must be exactly one of: critical, opportunity, positive, behavior",
   "title": "A short, compelling header for the card",
-  "description": "Clear statement of the analytical finding (e.g. 31.6% drop-off detected between Sign Up and Login)",
+  "description": "Clear statement of the finding, citing only figures present in the payload",
   "recommendation": "Technical or design step to resolve the friction point"
 }
 
 Rules:
 - Be precise, descriptive, and technical.
-- Highlight metrics if they are provided.`;
+- Cite ONLY numbers that appear in the payload. Never estimate, round to a
+  rounder-sounding figure, extrapolate, or introduce a percentage, user count
+  or benchmark that is not given to you.
+- Never compare against an industry average — you have not been given one.
+- If a field is null, it was not measurable. Do not fill it in.
+- If the payload is too sparse to support a finding, return type "behavior"
+  with the title "Insufficient data to determine this" and say plainly which
+  data is missing.
+- Refer to steps and events by the exact names in the payload.`;
 
 export function buildComponentIntentUserPrompt(component: any): string {
   return JSON.stringify({
@@ -48,11 +56,16 @@ export function buildComponentIntentUserPrompt(component: any): string {
 }
 
 export function buildInsightsUserPrompt(stats: any): string {
+  // Passed through verbatim. A default here would become a number the
+  // model cites as if it were measured, so absent values stay null.
   return JSON.stringify({
-    funnelName: stats.funnelName || "Onboarding Funnel",
-    totalUsers: stats.totalUsers || 0,
-    conversionRate: stats.conversionRate || "0.0%",
-    largestDropoff: stats.largestDropoff || { from: "Step A", to: "Step B", rate: "0%" },
-    topEvents: stats.topEvents || []
+    funnelName: stats.funnelName ?? null,
+    funnelSource: stats.funnelSource ?? null,
+    totalUsers: stats.totalUsers ?? null,
+    totalEvents: stats.totalEvents ?? null,
+    conversionRate: stats.conversionRate ?? null,
+    steps: stats.steps ?? [],
+    largestDropoff: stats.largestDropoff ?? null,
+    topEvents: stats.topEvents ?? [],
   });
 }

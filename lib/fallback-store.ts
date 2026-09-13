@@ -25,6 +25,8 @@ export interface FallbackProject {
   lastAnalyzed: string;
   createdAt: string;
   updatedAt: string;
+  /** Publishable key authorising POST /api/ingest for this project. */
+  writeKey?: string;
 }
 
 class FallbackStore {

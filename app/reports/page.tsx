@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import DashboardLayout from "@/components/navigation/DashboardLayout";
-import { Download, Eye, FileBarChart2, Loader2, Sparkles } from "lucide-react";
+import { Download, Eye, Loader2, Database } from "lucide-react";
 
 interface ReportData {
   title: string;
@@ -12,6 +12,8 @@ interface ReportData {
   conversionRate: string;
   eventsCount: string;
   funnelSummary: string;
+  /** False when the workspace has no measurable funnel yet. */
+  measured: boolean;
 }
 
 export default function Reports() {
@@ -23,38 +25,41 @@ export default function Reports() {
       try {
         const [dashboardRes, funnelRes] = await Promise.all([
           fetch("/api/dashboard"),
-          fetch("/api/funnels?type=Onboarding%20Funnel"),
+          fetch("/api/funnels"),
         ]);
         const dashboard = dashboardRes.ok ? await dashboardRes.json() : null;
         const funnel = funnelRes.ok ? await funnelRes.json() : null;
-        const steps = funnel?.steps || [];
-        const firstUsers = Number(steps[0]?.users || 0);
-        const lastUsers = Number(steps[steps.length - 1]?.users || 0);
-        const conversionRate = firstUsers > 0 ? `${Math.round((lastUsers / firstUsers) * 1000) / 10}%` : "0%";
+
+        // The conversion rate is taken from the funnel engine rather than
+        // recomputed here: two implementations of the same number will
+        // eventually disagree, and one of them will be on a report.
+        const measured = !!funnel && !funnel.insufficientData && funnel.conversionRate !== null;
+        const conversionRate = measured ? `${funnel.conversionRate}%` : "Insufficient data";
+
         const generatedDate = new Date().toLocaleDateString(undefined, {
           year: "numeric",
           month: "short",
           day: "numeric",
         });
-        const base = {
-          date: generatedDate,
-          usersCount: String(dashboard?.totalUsers ?? 0),
-          conversionRate,
-          eventsCount: String(dashboard?.eventsTracked ?? 0),
-          funnelSummary: funnel?.largestDropoff
-            ? `${funnel.largestDropoff.from} to ${funnel.largestDropoff.to}: ${funnel.largestDropoff.rate} drop-off`
-            : "No funnel drop-off data yet.",
-        };
+
+        const funnelSummary = !funnel || funnel.insufficientData
+          ? funnel?.reason || "No events collected yet, so no funnel could be measured."
+          : funnel.largestDropoff
+            ? `Largest drop-off — ${funnel.largestDropoff.from} to ${funnel.largestDropoff.to}: ${funnel.largestDropoff.rate}% of users did not continue.`
+            : "No drop-off measured between the observed steps.";
+
         setReports([
           {
-            ...base,
-            title: "Current Product Analytics",
-            description: "Live users, events, and funnel performance from the connected application.",
-          },
-          {
-            ...base,
-            title: "Current Conversion Report",
-            description: "Live conversion progression and the largest observed funnel drop-off.",
+            date: generatedDate,
+            usersCount: String(dashboard?.totalUsers ?? 0),
+            conversionRate,
+            eventsCount: String(dashboard?.eventsTracked ?? 0),
+            funnelSummary,
+            measured,
+            title: "Product Analytics Summary",
+            description: measured
+              ? `Users, events and funnel performance counted from recorded telemetry${funnel.funnelName ? ` for “${funnel.funnelName}”` : ""}.`
+              : "Users and events counted from recorded telemetry. No funnel is measurable yet.",
           },
         ]);
       } catch (error) {
@@ -70,10 +75,16 @@ export default function Reports() {
     const content = [
       report.title,
       `Generated: ${report.date}`,
+      "",
       `Active users: ${report.usersCount}`,
       `Events tracked: ${report.eventsCount}`,
       `Conversion: ${report.conversionRate}`,
+      "",
       report.funnelSummary,
+      "",
+      "All figures are counted from events recorded by Aletsch AI. Fields",
+      "reported as “Insufficient data” were not measurable and have not",
+      "been estimated.",
     ].join("\n");
     const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -110,9 +121,11 @@ export default function Reports() {
                   <span className="text-[10px] text-zinc-500 font-semibold uppercase">
                     Generated: {rep.date}
                   </span>
-                  <span className="flex items-center gap-1 text-[9px] text-indigo-400 bg-indigo-500/10 px-1.5 py-0.5 rounded font-bold">
-                    <Sparkles size={8} /> Auto
-                  </span>
+                  {!rep.measured && (
+                    <span className="flex items-center gap-1 text-[9px] text-zinc-400 bg-zinc-500/10 px-1.5 py-0.5 rounded font-bold">
+                      <Database size={8} /> Partial
+                    </span>
+                  )}
                 </div>
                 <h3 className="text-base font-bold text-white mb-2">{rep.title}</h3>
                 <p className="text-xs text-zinc-400 leading-normal mb-6">{rep.description}</p>
@@ -130,7 +143,9 @@ export default function Reports() {
                     <span className="text-[10px] text-zinc-500 uppercase block font-bold">
                       Conversion
                     </span>
-                    <span className="text-sm font-semibold text-white mt-1 block">
+                    <span
+                      className={`text-sm font-semibold mt-1 block ${rep.measured ? "text-white" : "text-zinc-500"}`}
+                    >
                       {rep.conversionRate}
                     </span>
                   </div>

@@ -1,7 +1,18 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
+import { ObjectId } from "mongodb";
 import { getDbOrNull } from "@/lib/mongodb";
+import { computeFunnel, deriveFunnelDefinition, type FunnelDefinition } from "@/lib/analytics/funnel";
 
+/**
+ * Funnels are built from events the project has actually emitted, or
+ * from a definition the developer saved. There is no built-in "Onboarding
+ * Funnel" of guessed event names: a funnel whose steps nobody can reach
+ * is not a measurement, it reports 0% drop-off as if it meant something.
+ *
+ * When there is nothing to measure the response says so explicitly
+ * (`insufficientData: true`, `steps: []`) and the UI renders that state.
+ */
 export async function GET(req: Request) {
   try {
     const { userId } = await auth();
@@ -10,119 +21,105 @@ export async function GET(req: Request) {
     }
 
     const { searchParams } = new URL(req.url);
-    const funnelType = searchParams.get("type") || "Onboarding Funnel";
-
-    // Define step mappings
-    let stepsDef = [
-      { name: "Landing Page", event: "page_view" },
-      { name: "Sign Up", event: "sign_up" },
-      { name: "Login", event: "login" },
-      { name: "Create Task", event: "task_created" },
-      { name: "Task Completed", event: "task_completed" },
-    ];
-
-    if (funnelType === "Checkout Pipeline") {
-      stepsDef = [
-        { name: "Cart Viewed", event: "cart_viewed" },
-        { name: "Checkout Started", event: "checkout_started" },
-        { name: "Shipping Added", event: "shipping_added" },
-        { name: "Payment Complete", event: "payment_complete" },
-      ];
-    }
+    const projectIdParam = searchParams.get("projectId");
+    const funnelName = searchParams.get("name");
 
     const db = await getDbOrNull();
     if (!db) {
       return NextResponse.json({
-        funnelName: funnelType,
-        steps: stepsDef.map((s, idx) => ({
-          name: s.name,
-          users: idx === 0 ? 100 : Math.max(10, 100 - idx * 20),
-          percent: idx === 0 ? 100 : Math.max(10, 100 - idx * 20),
-          drop: idx === 0 ? 0 : 20,
-        })),
-        largestDropoff: { from: stepsDef[0].name, to: stepsDef[1].name, rate: "20%" },
+        funnelName: null,
+        source: null,
+        steps: [],
+        conversionRate: null,
+        largestDropoff: null,
+        atRiskCount: 0,
+        totalUsers: 0,
+        insufficientData: true,
+        reason:
+          "No database is configured, so no events have been collected. Set MONGODB_URI and instrument a repository to build a funnel.",
       });
     }
 
-    // Fetch projects to scope queries
-    const projects = await db.collection("projects").find({ ownerId: userId }).toArray();
-    const projectIds = projects.map((p) => p._id.toString());
+    // Scope strictly to the caller's own projects.
+    const ownedProjects = await db.collection("projects").find({ ownerId: userId }).toArray();
+    let projectIds = ownedProjects.map((project) => project._id.toString());
+
+    if (projectIdParam) {
+      let owned = projectIds.includes(projectIdParam);
+      if (!owned) {
+        // Tolerate an ObjectId/string mismatch in stored ids.
+        try {
+          const match = await db
+            .collection("projects")
+            .findOne({ _id: new ObjectId(projectIdParam), ownerId: userId });
+          owned = !!match;
+        } catch {
+          owned = false;
+        }
+      }
+      if (!owned) {
+        return NextResponse.json({ error: "Project not found or unauthorized." }, { status: 404 });
+      }
+      projectIds = [projectIdParam];
+    }
 
     if (projectIds.length === 0) {
       return NextResponse.json({
-        funnelName: funnelType,
-        steps: stepsDef.map((s, idx) => ({
-          name: s.name,
-          users: idx === 0 ? 1 : 0,
-          percent: idx === 0 ? 100 : 0,
-          drop: idx === 0 ? 0 : 100,
-        })),
-        largestDropoff: { from: stepsDef[0].name, to: stepsDef[1].name, rate: "100%" },
+        funnelName: null,
+        source: null,
+        steps: [],
+        conversionRate: null,
+        largestDropoff: null,
+        atRiskCount: 0,
+        totalUsers: 0,
+        insufficientData: true,
+        reason: "No projects connected yet.",
       });
     }
 
-    // Calculate unique users at each step
-    const stepsData = [];
-    let prevUsers = 0;
-    let baseUsers = 0;
-
-    for (let i = 0; i < stepsDef.length; i++) {
-      const step = stepsDef[i];
-      const uniqueUsers = await db.collection("events").distinct("userId", {
-        projectId: { $in: projectIds },
-        eventName: step.event,
-      });
-      const count = uniqueUsers.length;
-
-      if (i === 0) {
-        baseUsers = count;
-      }
-
-      const percent = baseUsers > 0 ? Math.round((count / baseUsers) * 1000) / 10 : 0;
-      const drop = i > 0 && prevUsers > 0 ? Math.round(((prevUsers - count) / baseUsers) * 1000) / 10 : 0;
-
-      stepsData.push({
-        name: step.name,
-        users: count,
-        percent,
-        drop: i > 0 ? drop : 0,
-      });
-
-      prevUsers = count;
-    }
-
-    // Find largest dropoff
-    let maxDropRate = -1;
-    let largestDropoff = null;
-    for (let i = 1; i < stepsData.length; i++) {
-      const step = stepsData[i];
-      if (step.drop > maxDropRate) {
-        maxDropRate = step.drop;
-        largestDropoff = {
-          from: stepsData[i - 1].name,
-          to: step.name,
-          rate: `${step.drop}%`,
+    // A named funnel the developer saved takes precedence over derivation.
+    let definition: FunnelDefinition | null = null;
+    if (funnelName) {
+      const saved = await db
+        .collection("funnels")
+        .findOne({ projectId: { $in: projectIds }, name: funnelName });
+      if (saved && Array.isArray(saved.steps) && saved.steps.length >= 2) {
+        definition = {
+          name: saved.name,
+          steps: saved.steps.filter((step: any) => step?.event),
+          source: "saved",
         };
       }
     }
 
-    if (baseUsers === 0) {
+    definition = definition ?? (await deriveFunnelDefinition(db, projectIds));
+
+    if (!definition) {
       return NextResponse.json({
-        funnelName: funnelType,
-        steps: stepsDef.map((s, idx) => ({
-          name: s.name,
-          users: idx === 0 ? 1 : 0,
-          percent: idx === 0 ? 100 : 0,
-          drop: idx === 0 ? 0 : 100,
-        })),
-        largestDropoff: { from: stepsDef[0].name, to: stepsDef[1].name, rate: "100%" },
+        funnelName: null,
+        source: null,
+        steps: [],
+        conversionRate: null,
+        largestDropoff: null,
+        atRiskCount: 0,
+        totalUsers: 0,
+        insufficientData: true,
+        reason:
+          "This project has emitted fewer than two distinct events, so there is no journey to build a funnel from yet.",
       });
     }
 
+    const result = await computeFunnel(db, projectIds, definition);
+
     return NextResponse.json({
-      funnelName: funnelType,
-      steps: stepsData,
-      largestDropoff,
+      ...result,
+      // Available saved funnels, so the UI can offer real choices rather
+      // than a hardcoded list of funnel names.
+      available: await db
+        .collection("funnels")
+        .find({ projectId: { $in: projectIds } }, { projection: { name: 1 } })
+        .toArray()
+        .then((rows) => rows.map((row) => row.name).filter(Boolean)),
     });
   } catch (error: any) {
     console.error("Funnels API route error:", error);
@@ -130,3 +127,71 @@ export async function GET(req: Request) {
   }
 }
 
+/** Saves a funnel definition so it is used in place of a derived one. */
+export async function POST(req: Request) {
+  try {
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const body = await req.json();
+    const { projectId, name, steps } = body ?? {};
+
+    if (!projectId || !name || !Array.isArray(steps) || steps.length < 2) {
+      return NextResponse.json(
+        { error: "projectId, name, and at least two steps are required." },
+        { status: 400 }
+      );
+    }
+
+    const db = await getDbOrNull();
+    if (!db) {
+      return NextResponse.json(
+        { error: "No database configured, so funnels cannot be saved." },
+        { status: 503 }
+      );
+    }
+
+    let project: any = null;
+    try {
+      project = await db
+        .collection("projects")
+        .findOne({ _id: new ObjectId(projectId), ownerId: userId });
+    } catch {
+      project = await db.collection("projects").findOne({ _id: projectId as any, ownerId: userId });
+    }
+    if (!project) {
+      return NextResponse.json({ error: "Project not found or unauthorized." }, { status: 404 });
+    }
+
+    const cleanSteps = steps
+      .filter((step: any) => typeof step?.event === "string" && step.event.trim())
+      .map((step: any) => ({ name: String(step.name || step.event), event: String(step.event).trim() }));
+
+    if (cleanSteps.length < 2) {
+      return NextResponse.json({ error: "At least two valid steps are required." }, { status: 400 });
+    }
+
+    const now = new Date().toISOString();
+    await db.collection("funnels").updateOne(
+      { projectId: project._id.toString(), name },
+      {
+        $set: { steps: cleanSteps, updatedAt: now, ownerId: userId },
+        $setOnInsert: { projectId: project._id.toString(), name, createdAt: now },
+      },
+      { upsert: true }
+    );
+
+    const result = await computeFunnel(db, [project._id.toString()], {
+      name,
+      steps: cleanSteps,
+      source: "saved",
+    });
+
+    return NextResponse.json({ success: true, ...result });
+  } catch (error: any) {
+    console.error("Funnels API POST error:", error);
+    return NextResponse.json({ error: error.message || "Server Error" }, { status: 500 });
+  }
+}

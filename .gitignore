@@ -22,7 +22,20 @@
 
 # misc
 .DS_Store
+Thumbs.db
+AGENTS.md
+CLAUDE.md
+PROJECT_CONTEXT.md
 *.pem
+
+# local tooling and editor files
+.claude/
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.eslintcache
+*.local
 
 # debug
 npm-debug.log*
@@ -32,6 +45,8 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# ...but the credential-free template is meant to be committed.
+.env.example
 
 # vercel
 .vercel

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import { getDb } from "@/lib/mongodb";
+import { getDbOrNull } from "@/lib/mongodb";
 
 export async function GET(req: Request) {
   try {
@@ -13,22 +13,12 @@ export async function GET(req: Request) {
     const category = searchParams.get("category");
     const search = searchParams.get("search");
 
-    const hasMongo = !!process.env.MONGODB_URI;
-    if (!hasMongo) {
-      // Mock events fallback list
-      return NextResponse.json([
-        { name: "page_view", category: "Pageview", users: "8,642", occurrences: "12,653", lastSeen: "2m ago" },
-        { name: "button_click", category: "Interaction", users: "5,910", occurrences: "7,842", lastSeen: "5m ago" },
-        { name: "form_submit", category: "Form", users: "4,552", occurrences: "4,312", lastSeen: "12m ago" },
-        { name: "sign_up", category: "Conversion", users: "5,910", occurrences: "5,910", lastSeen: "15m ago" },
-        { name: "login", category: "Conversion", users: "4,552", occurrences: "4,552", lastSeen: "32m ago" },
-        { name: "repository_connected", category: "Conversion", users: "2,184", occurrences: "2,184", lastSeen: "1h ago" },
-        { name: "analysis_started", category: "System", users: "2,143", occurrences: "3,110", lastSeen: "2h ago" },
-        { name: "analysis_completed", category: "System", users: "2,143", occurrences: "3,090", lastSeen: "2h ago" },
-      ]);
+    // No database means no events have been recorded. An invented
+    // catalog here would be indistinguishable from a real one in the UI.
+    const db = await getDbOrNull();
+    if (!db) {
+      return NextResponse.json([]);
     }
-
-    const db = await getDb();
 
     // Fetch projects to scope queries
     const projects = await db.collection("projects").find({ ownerId: userId }).toArray();
@@ -48,7 +38,10 @@ export async function GET(req: Request) {
     }
 
     if (search) {
-      matchQuery.eventName = { $regex: search, $options: "i" };
+      // Escaped: an unescaped user string is a regex-injection vector and
+      // a trivial way to make the database do unbounded backtracking.
+      const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      matchQuery.eventName = { $regex: escaped, $options: "i" };
     }
 
     // Aggregate by eventName to calculate unique users, occurrences, and max timestamp (last seen)

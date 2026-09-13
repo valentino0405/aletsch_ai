@@ -111,7 +111,7 @@ export default function ProjectAnalyticsPage({ params }: { params: Promise<{ id:
   const statCards = [
     { label: "Components Detected", value: components.length, icon: FileCode2, color: "text-indigo-400" },
     { label: "Event Mappings", value: components.filter(c => c.events?.length > 0).length, icon: MousePointerClick, color: "text-cyan-400" },
-    { label: "Instrumented", value: components.filter(c => c.status === "Instrumented").length, icon: CheckCircle2, color: "text-emerald-400" },
+    { label: "Instrumented", value: components.filter(c => c.instrumented).length, icon: CheckCircle2, color: "text-emerald-400" },
     { label: "AI Insights", value: insights.length, icon: BrainCircuit, color: "text-purple-400" },
   ];
 
@@ -194,15 +194,24 @@ export default function ProjectAnalyticsPage({ params }: { params: Promise<{ id:
                           <div>
                             <p className="text-xs font-semibold text-white">{comp.name}</p>
                             <p className="text-[10px] text-zinc-500 font-mono mt-0.5">
-                              {comp.type} · {comp.events?.[0] || "event_tracked"}
+                              {comp.type}
+                              {comp.events?.[0] ? ` · ${comp.events[0]}` : ` · ${comp.interactionCount || 0} interaction${comp.interactionCount === 1 ? "" : "s"}`}
                             </p>
                           </div>
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
-                          <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                          <span
+                            className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${
+                              comp.instrumented
+                                ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
+                                : comp.status === "Pending review"
+                                ? "text-amber-400 bg-amber-500/10 border-amber-500/20"
+                                : "text-zinc-400 bg-zinc-500/10 border-zinc-600/30"
+                            }`}
+                          >
                             {comp.status}
                           </span>
-                          <span className="text-[10px] font-mono text-zinc-500">{comp.progress}</span>
+                          <span className="text-[10px] font-mono text-zinc-500">{comp.coverage}</span>
                         </div>
                       </div>
                     ))}

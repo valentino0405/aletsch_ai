@@ -4,6 +4,51 @@ import { getDbOrNull } from "@/lib/mongodb";
 import { ObjectId } from "mongodb";
 import { fallbackStore } from "@/lib/fallback-store";
 
+/**
+ * Instrumentation state for one component.
+ *
+ * Detecting an interaction is not the same as instrumenting it. A
+ * component only counts as instrumented once a plan has actually been
+ * applied to the repository, so the status is derived from applied
+ * plans — never assumed from the fact that analysis ran.
+ */
+function componentState(
+  filePath: string,
+  proposedEvents: string[],
+  liveEventsByFile: Map<string, string[]>,
+  pendingFiles: Set<string>
+) {
+  const live = liveEventsByFile.get(filePath);
+
+  if (live && live.length > 0) {
+    return {
+      status: "Instrumented",
+      instrumented: true,
+      events: live,
+      eventsAreLive: true,
+      coverage: `${live.length}/${Math.max(proposedEvents.length, live.length)} events live`,
+    };
+  }
+
+  if (pendingFiles.has(filePath)) {
+    return {
+      status: "Pending review",
+      instrumented: false,
+      events: proposedEvents,
+      eventsAreLive: false,
+      coverage: `${proposedEvents.length} proposed`,
+    };
+  }
+
+  return {
+    status: "Not instrumented",
+    instrumented: false,
+    events: proposedEvents,
+    eventsAreLive: false,
+    coverage: proposedEvents.length > 0 ? `${proposedEvents.length} proposed` : "No events detected",
+  };
+}
+
 export async function GET(req: Request) {
   try {
     const { userId } = await auth();
@@ -21,19 +66,32 @@ export async function GET(req: Request) {
       const result = projectId ? fallbackStore.getAnalysisResult(projectId) : null;
       const components = result?.components || [];
       const interactions = result?.interactions || [];
+      // Nothing can have been applied in fallback mode — there is no
+      // persistence layer to record an applied plan in.
+      const noneLive = new Map<string, string[]>();
+      const nonePending = new Set<string>();
+
       return NextResponse.json({
-        components: components.map((component: any, index: number) => ({
-          id: `fb_component_${index}`,
-          name: component.name,
-          type: component.route && component.route !== "(component)" ? "Page Layout" : "Component",
-          filePath: component.filePath,
-          route: component.route,
-          lineNumber: component.lineNumber,
-          interactionCount: component.interactionCount || 0,
-          status: "Instrumented",
-          progress: "100%",
-          events: interactions.filter((item: any) => item.componentName === component.name && item.filePath === component.filePath).map((item: any) => item.eventName),
-        })),
+        components: components.map((component: any, index: number) => {
+          const proposed = interactions
+            .filter(
+              (item: any) =>
+                item.componentName === component.name && item.filePath === component.filePath
+            )
+            .map((item: any) => item.eventName)
+            .filter(Boolean);
+
+          return {
+            id: `fb_component_${index}`,
+            name: component.name,
+            type: component.route && component.route !== "(component)" ? "Page Layout" : "Component",
+            filePath: component.filePath,
+            route: component.route,
+            lineNumber: component.lineNumber,
+            interactionCount: component.interactionCount || 0,
+            ...componentState(component.filePath, Array.from(new Set(proposed)), noneLive, nonePending),
+          };
+        }),
         analysis: result ? { status: result.status, filesScanned: result.filesScanned, filesParsed: result.filesParsed, componentsDetected: components.length, interactionsDetected: interactions.length } : null,
         interactions,
         grouped: [],
@@ -174,6 +232,40 @@ export async function GET(req: Request) {
       .limit(50)
       .toArray();
 
+    // ── Derive real instrumentation state ───────────────────
+    // A component is "Instrumented" only if a plan that touches its file
+    // has actually been applied (a PR opened / branch pushed). Pending
+    // plans mark the file as under review. Everything else is untouched.
+    const plans = await db
+      .collection("instrumentationPlans")
+      .find({ projectId: { $in: projectIds } })
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    const liveEventsByFile = new Map<string, string[]>();
+    const pendingFiles = new Set<string>();
+    for (const plan of plans) {
+      const planFiles: Array<{ path: string; events?: string[] }> = plan.files || [];
+      if (plan.status === "applied") {
+        for (const file of planFiles) {
+          if (!file.events || file.events.length === 0) continue;
+          const merged = new Set([...(liveEventsByFile.get(file.path) || []), ...file.events]);
+          liveEventsByFile.set(file.path, Array.from(merged));
+        }
+      } else if (plan.status === "proposed" || plan.status === "previewed") {
+        for (const file of planFiles) pendingFiles.add(file.path);
+      }
+    }
+
+    // Proposed events per file come from detected interactions.
+    const proposedByFile = new Map<string, Set<string>>();
+    for (const interaction of interactions) {
+      if (!interaction.eventName) continue;
+      const set = proposedByFile.get(interaction.filePath) || new Set<string>();
+      set.add(interaction.eventName);
+      proposedByFile.set(interaction.filePath, set);
+    }
+
     return NextResponse.json({
       analysis: latestAnalysis
         ? {
@@ -202,19 +294,20 @@ export async function GET(req: Request) {
             completedAt: job.completedAt,
           }
         : null,
-      components: components.map((c) => ({
-        id: c._id.toString(),
-        name: c.name,
-        type: c.type || (c.route && c.route !== "(component)" ? "Page Layout" : "Component"),
-        filePath: c.filePath,
-        route: c.route,
-        lineNumber: c.lineNumber,
-        interactionCount: c.interactionCount || 0,
-        isDefaultExport: c.isDefaultExport,
-        status: "Instrumented",
-        progress: "100%",
-        events: c.recommendedEvent ? [c.recommendedEvent] : ["interacted"],
-      })),
+      components: components.map((c) => {
+        const proposed = Array.from(proposedByFile.get(c.filePath) || []);
+        return {
+          id: c._id.toString(),
+          name: c.name,
+          type: c.type || (c.route && c.route !== "(component)" ? "Page Layout" : "Component"),
+          filePath: c.filePath,
+          route: c.route,
+          lineNumber: c.lineNumber,
+          interactionCount: c.interactionCount || 0,
+          isDefaultExport: c.isDefaultExport,
+          ...componentState(c.filePath, proposed, liveEventsByFile, pendingFiles),
+        };
+      }),
       grouped: groupedList,
       totalInteractions: interactions.length,
     });

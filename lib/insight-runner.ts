@@ -1,7 +1,17 @@
 import { getDb } from "./mongodb";
 import { AIService } from "./ai/client";
 import { SYSTEM_INSIGHTS_PROMPT, buildInsightsUserPrompt } from "./ai/prompts";
+import { resolveFunnel } from "./analytics/funnel";
 
+/**
+ * Generates one grounded insight for a project.
+ *
+ * Everything the model sees is measured first: the funnel is derived
+ * from events the project actually emitted, and the numbers come from
+ * `computeFunnel`. If there is nothing to measure, no insight is
+ * written — the UI shows "Insufficient data" rather than a plausible
+ * sentence with a made-up percentage in it.
+ */
 export async function generateProjectInsights(projectId: string) {
   console.log(`Generating AI insights for project: ${projectId}`);
   const hasMongo = !!process.env.MONGODB_URI;
@@ -10,66 +20,108 @@ export async function generateProjectInsights(projectId: string) {
   try {
     const db = await getDb();
 
-    // 1. Gather stats from database
-    // Unique users count
-    const uniqueUsersRes = await db.collection("events").distinct("userId", { projectId });
-    const totalUsers = uniqueUsersRes.length;
-
-    // Total events count
+    // ── 1. Measure ───────────────────────────────────────────
+    const uniqueUsers = await db.collection("events").distinct("userId", { projectId });
+    const totalUsers = uniqueUsers.length;
     const eventCount = await db.collection("events").countDocuments({ projectId });
 
-    // Top event name
-    const topEventRes = await db.collection("events").aggregate([
-      { $match: { projectId } },
-      { $group: { _id: "$eventName", count: { $sum: 1 } } },
-      { $sort: { count: -1 } },
-      { $limit: 1 }
-    ]).toArray();
-    
-    const topEvent = topEventRes[0]?._id || "none";
+    const topEventRows = await db
+      .collection("events")
+      .aggregate([
+        { $match: { projectId } },
+        { $group: { _id: "$eventName", count: { $sum: { $ifNull: ["$occurrences", 1] } } } },
+        { $sort: { count: -1 } },
+        { $limit: 5 },
+      ])
+      .toArray();
 
-    // 2. Format telemetry summary stats for AI prompt context
+    const topEvents = topEventRows.map((row) => ({ name: row._id as string, count: row.count as number }));
+    const funnel = await resolveFunnel(db, [projectId]);
+
+    // ── 2. Refuse to speak without evidence ──────────────────
+    // One event from one user is not a behavioural pattern. Saying so
+    // is more useful than a confident-sounding guess.
+    if (eventCount === 0 || !funnel || funnel.insufficientData) {
+      const doc = {
+        projectId,
+        type: "behavior",
+        title: "Insufficient data to determine this",
+        description:
+          eventCount === 0
+            ? "No events have been received for this project yet, so there is nothing to analyse. Apply an instrumentation plan and collect traffic first."
+            : `Only ${eventCount} event${eventCount === 1 ? "" : "s"} from ${totalUsers} user${totalUsers === 1 ? "" : "s"} have been received, which is not enough to identify a drop-off.`,
+        recommendation:
+          "Collect more traffic, then regenerate insights. Aletsch will not estimate conversion rates from data it does not have.",
+        grounding: { eventCount, totalUsers, funnelAvailable: !!funnel },
+        createdAt: new Date().toISOString(),
+      };
+
+      await db.collection("insights").deleteMany({ projectId });
+      await db.collection("insights").insertOne(doc);
+      return doc;
+    }
+
+    // ── 3. Ground the model in the measurements ──────────────
     const statsContext = {
-      funnelName: "Onboarding Funnel",
+      funnelName: funnel.funnelName,
+      funnelSource: funnel.source,
       totalUsers,
-      conversionRate: "34.6%",
-      largestDropoff: {
-        from: "Sign Up",
-        to: "Login",
-        rate: "31.6%"
-      },
-      topEvents: [topEvent, "page_view", "button_click"]
+      totalEvents: eventCount,
+      conversionRate: funnel.conversionRate === null ? null : `${funnel.conversionRate.toFixed(1)}%`,
+      steps: funnel.steps.map((step) => ({
+        name: step.name,
+        event: step.event,
+        users: step.users,
+        percentOfEntry: step.percent,
+        dropFromPrevious: step.dropFromPrevious,
+      })),
+      largestDropoff: funnel.largestDropoff
+        ? {
+            from: funnel.largestDropoff.from,
+            to: funnel.largestDropoff.to,
+            rate: `${funnel.largestDropoff.rate.toFixed(1)}%`,
+          }
+        : null,
+      topEvents,
     };
 
     let insightResult: any = null;
 
     if (AIService.isConfigured()) {
-      const systemPrompt = SYSTEM_INSIGHTS_PROMPT;
-      const userPrompt = buildInsightsUserPrompt(statsContext);
-
       insightResult = await AIService.generateStructured(
-        systemPrompt,
-        userPrompt,
+        SYSTEM_INSIGHTS_PROMPT,
+        buildInsightsUserPrompt(statsContext),
         (parsed) => {
           if (!parsed.type || !parsed.title || !parsed.description) return null;
           return {
             type: parsed.type,
             title: parsed.title,
             description: parsed.description,
-            recommendation: parsed.recommendation || ""
+            recommendation: parsed.recommendation || "",
           };
         }
       );
     }
 
-    // Fallback: Default mock/deterministic insight if AI is not configured or failed
+    // ── 4. Deterministic fallback, still from real numbers ───
+    // Used when no model is configured or the call failed. It restates
+    // the measured funnel; it never introduces a figure of its own.
     if (!insightResult) {
-      insightResult = {
-        type: "critical",
-        title: "High Onboarding Drop-off",
-        description: "An onboarding dropoff of 31.6% was detected between Sign Up and Login steps.",
-        recommendation: "Ensure that welcome redirect layouts are fully configured within your app authentication middleware."
-      };
+      const worst = funnel.largestDropoff;
+      insightResult = worst
+        ? {
+            type: worst.rate >= 25 ? "critical" : "opportunity",
+            title: `${worst.rate.toFixed(1)}% drop-off between ${worst.from} and ${worst.to}`,
+            description: `Of the ${funnel.totalUsers} user${funnel.totalUsers === 1 ? "" : "s"} who reached ${funnel.steps[0].name}, ${worst.rate.toFixed(1)}% did not continue from ${worst.from} to ${worst.to}. End-to-end conversion through "${funnel.funnelName}" is ${funnel.conversionRate?.toFixed(1)}%.`,
+            recommendation: `Inspect the journey between ${worst.from} and ${worst.to}. No AI model is configured, so this is a direct restatement of the measured funnel rather than a diagnosis.`,
+          }
+        : {
+            type: "behavior",
+            title: `${funnel.conversionRate?.toFixed(1)}% complete "${funnel.funnelName}"`,
+            description: `${funnel.totalUsers} user${funnel.totalUsers === 1 ? "" : "s"} entered the funnel and ${funnel.steps[funnel.steps.length - 1].users} reached the final step. No single step loses a disproportionate share.`,
+            recommendation:
+              "No significant drop-off was measured. Configure OPENROUTER_API_KEY for a qualitative analysis of these numbers.",
+          };
     }
 
     const insightDoc = {
@@ -78,23 +130,32 @@ export async function generateProjectInsights(projectId: string) {
       title: insightResult.title,
       description: insightResult.description,
       recommendation: insightResult.recommendation,
-      createdAt: new Date().toISOString()
+      // The exact figures the insight was generated from, so a reader
+      // can check the claim against the data.
+      grounding: {
+        funnelName: funnel.funnelName,
+        funnelSource: funnel.source,
+        conversionRate: funnel.conversionRate,
+        largestDropoff: funnel.largestDropoff,
+        totalUsers,
+        totalEvents: eventCount,
+        aiGenerated: AIService.isConfigured() && !!insightResult,
+      },
+      createdAt: new Date().toISOString(),
     };
 
-    // Save to database
     await db.collection("insights").deleteMany({ projectId });
     await db.collection("insights").insertOne(insightDoc);
 
-    // Also trigger a system alert if critical drop-off is found
-    if (insightDoc.type === "critical") {
+    // Raise an alert only for a drop-off that was actually measured.
+    if (insightDoc.type === "critical" && funnel.largestDropoff) {
       await db.collection("alerts").insertOne({
         projectId,
         title: insightDoc.title,
         description: insightDoc.description,
         severity: "Critical",
         category: "Funnel Analysis",
-        time: "Just now",
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
       });
     }
 

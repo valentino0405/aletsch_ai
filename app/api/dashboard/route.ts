@@ -2,7 +2,28 @@ import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { getDbOrNull } from "@/lib/mongodb";
 import { fallbackStore } from "@/lib/fallback-store";
+import { resolveFunnel, formatRate } from "@/lib/analytics/funnel";
+import { computeTrends } from "@/lib/analytics/trends";
 import { ObjectId } from "mongodb";
+
+/** A flat, explicitly empty trend block for the no-data branches. */
+function emptyTrends() {
+  const series = Array.from({ length: 7 }, (_, index) => {
+    const day = new Date();
+    day.setUTCDate(day.getUTCDate() - (6 - index));
+    return { date: day.toISOString().slice(0, 10), events: 0, users: 0 };
+  });
+  const noChange = { percent: null, direction: "flat" as const, label: "No prior data" };
+  return {
+    window: "7d",
+    hasData: false,
+    series,
+    eventSparkline: series.map(() => 0),
+    userSparkline: series.map(() => 0),
+    users: noChange,
+    events: noChange,
+  };
+}
 
 export async function GET(req: Request) {
   try {
@@ -51,10 +72,12 @@ export async function GET(req: Request) {
         eventsTracked: String(fallbackEvents.length || interactions.length),
         componentsDetected,
         reposConnected: fbRepos.length,
-        conversionRate: "0.0%",
+        conversionRate: formatRate(null),
         averageSessionTime: "0s",
         atRiskDropoffs: 0,
         funnel: [],
+        funnelMeta: { name: null, source: null, largestDropoff: null, insufficientData: true },
+        trends: emptyTrends(),
         topEvents,
         projects: fbProjects.map((p) => ({ id: p.id, name: p.name })),
         selectedProject: scopedProjects[0]
@@ -116,10 +139,12 @@ export async function GET(req: Request) {
         eventsTracked: 0,
         componentsDetected: 0,
         reposConnected: 0,
-        conversionRate: "0.0%",
+        conversionRate: formatRate(null),
         averageSessionTime: "0s",
         atRiskDropoffs: 0,
         funnel: [],
+        funnelMeta: { name: null, source: null, largestDropoff: null, insufficientData: true },
+        trends: emptyTrends(),
         topEvents: [],
         recentActivity: [],
         projects: projectsMeta,
@@ -190,30 +215,20 @@ export async function GET(req: Request) {
         cat: e.category || "Interaction"
       }));
 
-      const funnelDefinition = [
-        { name: "Landing Page", event: "page_view" },
-        { name: "Sign Up", event: "sign_up" },
-        { name: "Login", event: "login" },
-        { name: "Create Task", event: "task_created" },
-        { name: "Task Completed", event: "task_completed" },
-      ];
-      const funnelCounts: Array<{ name: string; users: number }> = [];
-      for (const step of funnelDefinition) {
-        const users = await db.collection("events").distinct("userId", {
-          projectId: { $in: projectIds },
-          eventName: step.event,
-        });
-        funnelCounts.push({ name: step.name, users: users.length });
-      }
-      const funnelBase = funnelCounts[0]?.users || 0;
-      const funnel = funnelCounts.map((step, index) => {
-        const previousUsers = index > 0 ? funnelCounts[index - 1].users : step.users;
-        const percent = funnelBase > 0 ? Math.round((step.users / funnelBase) * 1000) / 10 : 0;
-        const drop = index > 0 && funnelBase > 0
-          ? Math.round(((previousUsers - step.users) / funnelBase) * 1000) / 10
-          : 0;
-        return { ...step, percent, drop, active: true };
-      });
+      // 6b. Funnel — derived from events this project actually emitted.
+      // `resolveFunnel` returns null when there is nothing to measure, and
+      // the response says so rather than showing a zeroed-out funnel.
+      const funnelResult = await resolveFunnel(db, projectIds);
+      const trends = await computeTrends(db, projectIds, 7);
+      const funnel = (funnelResult?.steps ?? []).map((step) => ({
+        name: step.name,
+        event: step.event,
+        users: step.users,
+        percent: step.percent,
+        drop: step.drop,
+        dropFromPrevious: step.dropFromPrevious,
+        active: true,
+      }));
 
       // 7. Recent Activity — pull from analysis jobs for real activity
       const recentJobs = await db.collection("analysisJobs")
@@ -273,11 +288,28 @@ export async function GET(req: Request) {
       eventsTracked: eventsCount.toLocaleString(),
       componentsDetected: analysisSummary?.interactionsDetected ?? componentsCount,
       reposConnected: reposCount,
-      conversionRate: "34.6%",
+      conversionRate: formatRate(funnelResult?.conversionRate ?? null),
       averageSessionTime: avgSessionTimeStr,
-      atRiskDropoffs: 0,
+      atRiskDropoffs: funnelResult?.atRiskCount ?? 0,
       funnel,
+      funnelMeta: funnelResult
+        ? {
+            name: funnelResult.funnelName,
+            source: funnelResult.source,
+            largestDropoff: funnelResult.largestDropoff,
+            insufficientData: funnelResult.insufficientData,
+          }
+        : { name: null, source: null, largestDropoff: null, insufficientData: true },
       topEvents: formattedTopEvents,
+      trends: {
+        window: "7d",
+        hasData: trends.hasData,
+        series: trends.series,
+        eventSparkline: trends.eventSparkline,
+        userSparkline: trends.userSparkline,
+        users: trends.users,
+        events: trends.events,
+      },
       recentActivity: recentActivity.slice(0, 5),
       projects: projectsMeta,
       selectedProject,

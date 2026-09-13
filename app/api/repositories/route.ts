@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { getDbOrNull } from "@/lib/mongodb";
 import { parseGitHubUrl, getRepoMetadata, getRepoBranches } from "@/lib/github";
 import { fallbackStore } from "@/lib/fallback-store";
+import { generateProjectWriteKey } from "@/lib/security/token-crypto";
 
 export async function GET() {
   try {
@@ -111,7 +112,10 @@ export async function POST(req: Request) {
         { upsert: true }
       );
 
-      // Upsert into projects collection
+      // Upsert into projects collection. `replaceOne` overwrites the
+      // whole document, so anything that must survive a re-sync has to
+      // be carried across explicitly — the write key above all, since
+      // losing it would silently break every already-deployed tracker.
       const projectDoc = {
         ownerId: userId,
         name: meta.name,
@@ -121,7 +125,8 @@ export async function POST(req: Request) {
         status: "Analyzing",
         events: 0,
         lastAnalyzed: "Just connected",
-        createdAt: new Date().toISOString(),
+        writeKey: existingProject?.writeKey || generateProjectWriteKey(),
+        createdAt: existingProject?.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
       const projectResult = await db.collection("projects").replaceOne(
@@ -218,6 +223,7 @@ export async function POST(req: Request) {
       status: "Synced",
       events: 0,
       lastAnalyzed: "Just connected",
+      writeKey: generateProjectWriteKey(),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { getDbOrNull } from "@/lib/mongodb";
 import { fallbackStore } from "@/lib/fallback-store";
+import { generateProjectWriteKey } from "@/lib/security/token-crypto";
 
 export async function POST(req: Request) {
   try {
@@ -23,6 +24,10 @@ export async function POST(req: Request) {
         branch: branch || "main",
         ownerId: userId,
         status: "Connected",
+        // Publishable key the generated tracker uses to authorise
+        // POST /api/ingest. Minted at creation so instrumentation can
+        // be applied without a separate setup step.
+        writeKey: generateProjectWriteKey(),
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
@@ -31,6 +36,7 @@ export async function POST(req: Request) {
       return NextResponse.json({
         success: true,
         id: result.insertedId.toString(),
+        writeKey: projectDoc.writeKey,
         message: "Project connected successfully in MongoDB Atlas.",
       });
     }
@@ -45,6 +51,7 @@ export async function POST(req: Request) {
       status: "Connected",
       events: 0,
       lastAnalyzed: "Just created",
+      writeKey: generateProjectWriteKey(),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
@@ -52,6 +59,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       success: true,
       id: fallbackProject.id,
+      writeKey: fallbackProject.writeKey,
       message: "Project created successfully.",
     });
   } catch (error: any) {

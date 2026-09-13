@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import { getDb } from "@/lib/mongodb";
+import { getDbOrNull } from "@/lib/mongodb";
 import { ObjectId } from "mongodb";
 
 export async function GET(req: Request) {
@@ -13,25 +13,39 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const projectId = searchParams.get("projectId");
 
-    const hasMongo = !!process.env.MONGODB_URI;
-    if (!hasMongo) {
-      // Mock diff preview fallback
-      return NextResponse.json({
-        filePath: "components/CreateProject.tsx",
-        originalCode: `<Button onClick={handleCreateProject}>\n  Create Project\n</Button>`,
-        instrumentedCode: `<Button onClick={(e) => {\n  track("project_created");\n  handleCreateProject(e);\n}}>\n  Create Project\n</Button>`,
-        diff: `@@ -12,3 +12,7 @@\n-<Button onClick={handleCreateProject}>\n+<Button onClick={(e) => {\n+  track("project_created");\n+  handleCreateProject(e);\n+}}>`
-      });
+    // No database means nothing has been analyzed. A canned diff here
+    // would show the developer instrumentation that does not exist.
+    const db = await getDbOrNull();
+    if (!db) {
+      return NextResponse.json(
+        { error: "No analysis data available. Connect a repository and run an analysis first." },
+        { status: 404 }
+      );
     }
 
-    const db = await getDb();
-
-    let query: any = {};
+    const query: any = {};
     if (projectId) {
+      // Ownership must be proven before a project id is trusted: without
+      // this, any signed-in user could read another user's source code by
+      // guessing an id.
+      let project: any = null;
+      try {
+        project = await db
+          .collection("projects")
+          .findOne({ _id: new ObjectId(projectId), ownerId: userId });
+      } catch {
+        // Not a valid ObjectId — fall through to the string form.
+      }
+      if (!project) {
+        project = await db.collection("projects").findOne({ _id: projectId as any, ownerId: userId });
+      }
+      if (!project) {
+        return NextResponse.json({ error: "Project not found or unauthorized." }, { status: 404 });
+      }
       query.projectId = projectId;
     } else {
       const projects = await db.collection("projects").find({ ownerId: userId }).toArray();
-      const projectIds = projects.map(p => p._id.toString());
+      const projectIds = projects.map((p) => p._id.toString());
       if (projectIds.length === 0) {
         return NextResponse.json({ error: "No projects connected." }, { status: 404 });
       }

@@ -34,6 +34,12 @@ interface ProjectMeta {
   repositoryUrl: string;
 }
 
+interface TrendDelta {
+  percent: number | null;
+  direction: "up" | "down" | "flat";
+  label: string;
+}
+
 interface DashboardData {
   totalUsers: string | number;
   eventsTracked: string | number;
@@ -43,6 +49,21 @@ interface DashboardData {
   averageSessionTime: string;
   atRiskDropoffs: number;
   funnel: any[];
+  funnelMeta?: {
+    name: string | null;
+    source: string | null;
+    largestDropoff: { from: string; to: string; rate: number } | null;
+    insufficientData: boolean;
+  };
+  trends?: {
+    window: string;
+    hasData: boolean;
+    series: { date: string; events: number; users: number }[];
+    eventSparkline: number[];
+    userSparkline: number[];
+    users: TrendDelta;
+    events: TrendDelta;
+  };
   topEvents: any[];
   recentActivity: any[];
   projects: ProjectMeta[];
@@ -126,39 +147,47 @@ export default function Dashboard() {
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId) || data?.selectedProject || null;
 
+  // Trend labels and sparklines come from /api/dashboard, which measures
+  // the last 7 days against the 7 before. Nothing here is illustrative:
+  // with no events the series is flat and the label says so.
+  const trends = data?.trends;
+  const flatSeries = [0, 0, 0, 0, 0, 0, 0];
+  const userSpark = trends?.userSparkline?.length ? trends.userSparkline : flatSeries;
+  const eventSpark = trends?.eventSparkline?.length ? trends.eventSparkline : flatSeries;
+
   const metrics = [
     {
       title: "Total Users",
       value: String(data?.totalUsers ?? "0"),
-      change: "+12.5%",
-      isPositive: true,
+      change: trends?.users.label ?? "No prior data",
+      isPositive: trends?.users.direction !== "down",
       icon: UsersIcon,
       colorClass: "text-indigo-400",
       bgClass: "bg-indigo-500/10",
       glowClass: "glow-indigo",
-      sparkline: [20, 35, 30, 45, 40, 55, 52],
+      sparkline: userSpark,
     },
     {
       title: "Events Tracked",
       value: String(data?.eventsTracked ?? "0"),
-      change: "+18.3%",
-      isPositive: true,
+      change: trends?.events.label ?? "No prior data",
+      isPositive: trends?.events.direction !== "down",
       icon: Activity,
       colorClass: "text-purple-400",
       bgClass: "bg-purple-500/10",
       glowClass: "glow-purple",
-      sparkline: [10, 15, 25, 20, 35, 42, 47],
+      sparkline: eventSpark,
     },
     {
       title: "Repos Connected",
       value: String(data?.reposConnected ?? "0"),
-      change: "Active",
+      change: `${data?.reposConnected ?? 0} active`,
       isPositive: true,
       icon: GitBranch,
       colorClass: "text-cyan-400",
       bgClass: "bg-cyan-500/10",
       glowClass: "glow-cyan",
-      sparkline: [0, 0, 1, 1, 1, 1, data?.reposConnected || 1],
+      sparkline: flatSeries.map(() => data?.reposConnected ?? 0),
     },
     {
       title: "Interactions",
@@ -169,31 +198,46 @@ export default function Dashboard() {
       colorClass: "text-emerald-400",
       bgClass: "bg-emerald-500/10",
       glowClass: "glow-emerald",
-      sparkline: [0, 2, 5, 8, 12, 18, data?.componentsDetected || 0],
+      sparkline: flatSeries.map(() => data?.componentsDetected ?? 0),
     },
     {
       title: "At Risk Drop-offs",
       value: String(data?.atRiskDropoffs ?? "0"),
-      change: "-2 vs last week",
-      isPositive: true,
+      change:
+        data?.funnelMeta?.largestDropoff
+          ? `Worst: ${data.funnelMeta.largestDropoff.rate.toFixed(1)}%`
+          : "None measured",
+      isPositive: (data?.atRiskDropoffs ?? 0) === 0,
       icon: AlertTriangle,
       colorClass: "text-rose-400",
       bgClass: "bg-rose-500/10",
       glowClass: "glow-rose",
-      sparkline: [7, 6, 5, 5, 4, 3, 3],
+      sparkline: flatSeries.map(() => data?.atRiskDropoffs ?? 0),
     },
   ];
 
-  const funnelSteps =
-    data?.funnel && data.funnel.length > 0
-      ? data.funnel
-      : [
-          { name: "Landing Page", percent: 100, users: 0, drop: 0, active: true },
-          { name: "Sign Up", percent: 0, users: 0, drop: 0, active: true },
-          { name: "Login", percent: 0, users: 0, drop: 0, active: true },
-          { name: "Create Task", percent: 0, users: 0, drop: 0, active: true },
-          { name: "Task Completed", percent: 0, users: 0, drop: 0, active: true },
-        ];
+  // Real instrumentation coverage. A component counts as instrumented
+  // only when an applied plan covers its file — see /api/instrumentation.
+  const detectedComponents = Array.isArray(components) ? components : [];
+  const instrumentedComponents = detectedComponents.filter((c) => c.instrumented);
+  const pendingComponents = detectedComponents.filter((c) => c.status === "Pending review");
+  const instrumentationPct =
+    detectedComponents.length > 0
+      ? Math.round((instrumentedComponents.length / detectedComponents.length) * 100)
+      : 0;
+  const liveEventCount = instrumentedComponents.reduce(
+    (total, c) => total + (c.events?.length || 0),
+    0
+  );
+  const proposedEventCount = detectedComponents.reduce(
+    (total, c) => total + (c.eventsAreLive ? 0 : c.events?.length || 0),
+    0
+  );
+
+  // Real funnel only. With no events there is no funnel to draw, and the
+  // panel renders an empty state instead of a placeholder journey.
+  const funnelSteps = data?.funnel ?? [];
+  const hasFunnel = funnelSteps.length > 0 && !data?.funnelMeta?.insufficientData;
 
   return (
     <DashboardLayout>
@@ -470,70 +514,124 @@ export default function Dashboard() {
                 <div>
                   <div className="flex items-center justify-between mb-6">
                     <div className="flex items-center gap-2">
-                      <h3 className="text-sm font-bold text-white">Predicted User Funnel</h3>
-                      <span className="flex items-center gap-1 text-[9px] text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded-full font-bold">
-                        <Sparkles size={8} />
-                        AI Generated
-                      </span>
+                      <h3 className="text-sm font-bold text-white">
+                        {data?.funnelMeta?.name || "User Funnel"}
+                      </h3>
+                      {/* How the steps were chosen — a saved funnel is the
+                          developer's own, the others were derived from
+                          observed events. Never labelled "AI generated"
+                          unless the AI actually named the stages. */}
+                      {hasFunnel && (
+                        <span
+                          className={`flex items-center gap-1 text-[9px] px-2 py-0.5 rounded-full font-bold ${
+                            data?.funnelMeta?.source === "saved"
+                              ? "text-emerald-400 bg-emerald-500/10"
+                              : data?.funnelMeta?.source === "derived-from-catalog"
+                              ? "text-indigo-400 bg-indigo-500/10"
+                              : "text-zinc-400 bg-zinc-500/10"
+                          }`}
+                        >
+                          {data?.funnelMeta?.source === "saved" ? (
+                            <CheckCircle2 size={8} />
+                          ) : (
+                            <Sparkles size={8} />
+                          )}
+                          {data?.funnelMeta?.source === "saved"
+                            ? "Saved definition"
+                            : data?.funnelMeta?.source === "derived-from-catalog"
+                            ? "Derived from AI event stages"
+                            : "Derived from observed events"}
+                        </span>
+                      )}
                     </div>
                     <span className="text-[10px] text-zinc-400 font-semibold">
-                      {selectedProject?.name || "All Projects"} ▾
+                      {selectedProject?.name || "All Projects"}
                     </span>
                   </div>
 
-                  <div className="relative py-8 flex items-center justify-between gap-2 overflow-x-auto min-w-[500px]">
-                    <div className="absolute top-[52px] left-[5%] right-[5%] h-1 z-0 pointer-events-none">
-                      <svg className="w-full h-full" preserveAspectRatio="none" viewBox="0 0 100 10">
-                        <path d="M 0 5 Q 25 8, 50 2 T 100 5" fill="none" stroke="#1f1f2e" strokeWidth="2" />
-                        <path
-                          d="M 0 5 Q 25 8, 50 2 T 100 5"
-                          fill="none"
-                          stroke="url(#indigo-grad)"
-                          strokeWidth="2"
-                          className="animate-flow-dash"
-                        />
-                        <defs>
-                          <linearGradient id="indigo-grad" x1="0" y1="0" x2="1" y2="0">
-                            <stop offset="0%" stopColor="#6366f1" />
-                            <stop offset="50%" stopColor="#a855f7" />
-                            <stop offset="100%" stopColor="#06b6d4" />
-                          </linearGradient>
-                        </defs>
-                      </svg>
+                  {!hasFunnel ? (
+                    <div className="py-12 text-center space-y-2">
+                      <BarChart3 size={28} className="mx-auto text-indigo-500/30" />
+                      <p className="text-xs font-semibold text-zinc-300">
+                        Insufficient data to determine a funnel
+                      </p>
+                      <p className="text-[11px] text-zinc-500 max-w-sm mx-auto leading-relaxed">
+                        A funnel is built from events this project has actually emitted. Apply an
+                        instrumentation plan, then collect traffic — Aletsch will not show a placeholder
+                        journey in the meantime.
+                      </p>
+                      <a
+                        href="/instrumentation"
+                        className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-400 hover:text-indigo-300 transition pt-1"
+                      >
+                        Go to instrumentation <ArrowRight size={12} />
+                      </a>
                     </div>
-                    {funnelSteps.map((step: any, idx: number) => (
-                      <div key={step.name} className="flex-1 flex flex-col items-center relative z-10">
-                        <div className="relative">
-                          <div className="w-12 h-12 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-center text-xs font-bold text-zinc-300 hover:border-indigo-500 hover:text-white transition cursor-pointer shadow-lg">
-                            {idx + 1}
-                          </div>
-                          {step.drop && (
-                            <div className="absolute -left-12 top-1/2 -translate-y-1/2 flex flex-col items-center">
-                              <span className="text-[9px] text-rose-500 font-bold bg-rose-500/10 px-1 rounded">
-                                ↓ {step.drop}
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                        <span className="text-[11px] font-semibold text-zinc-300 mt-3 text-center whitespace-nowrap">
-                          {step.name}
-                        </span>
-                        <span className="text-[12px] font-bold text-white mt-1">{step.percent}%</span>
-                        <span className="text-[9px] text-zinc-500 mt-0.5">{step.users} users</span>
+                  ) : (
+                    <div className="relative py-8 flex items-center justify-between gap-2 overflow-x-auto min-w-[500px]">
+                      <div className="absolute top-[52px] left-[5%] right-[5%] h-1 z-0 pointer-events-none">
+                        <svg className="w-full h-full" preserveAspectRatio="none" viewBox="0 0 100 10">
+                          <path d="M 0 5 Q 25 8, 50 2 T 100 5" fill="none" stroke="#1f1f2e" strokeWidth="2" />
+                          <path
+                            d="M 0 5 Q 25 8, 50 2 T 100 5"
+                            fill="none"
+                            stroke="url(#indigo-grad)"
+                            strokeWidth="2"
+                            className="animate-flow-dash"
+                          />
+                          <defs>
+                            <linearGradient id="indigo-grad" x1="0" y1="0" x2="1" y2="0">
+                              <stop offset="0%" stopColor="#6366f1" />
+                              <stop offset="50%" stopColor="#a855f7" />
+                              <stop offset="100%" stopColor="#06b6d4" />
+                            </linearGradient>
+                          </defs>
+                        </svg>
                       </div>
-                    ))}
-                  </div>
+                      {funnelSteps.map((step: any, idx: number) => (
+                        <div key={step.name} className="flex-1 flex flex-col items-center relative z-10">
+                          <div className="relative">
+                            <div className="w-12 h-12 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-center text-xs font-bold text-zinc-300 hover:border-indigo-500 hover:text-white transition cursor-pointer shadow-lg">
+                              {idx + 1}
+                            </div>
+                            {step.dropFromPrevious > 0 && (
+                              <div className="absolute -left-12 top-1/2 -translate-y-1/2 flex flex-col items-center">
+                                <span className="text-[9px] text-rose-500 font-bold bg-rose-500/10 px-1 rounded">
+                                  ↓ {step.dropFromPrevious}%
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                          <span className="text-[11px] font-semibold text-zinc-300 mt-3 text-center whitespace-nowrap">
+                            {step.name}
+                          </span>
+                          <span className="text-[12px] font-bold text-white mt-1">{step.percent}%</span>
+                          <span className="text-[9px] text-zinc-500 mt-0.5">
+                            {step.users} user{step.users === 1 ? "" : "s"}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 <div className="mt-6 p-4 rounded-lg bg-zinc-950/80 border border-zinc-800/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                   <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-lg bg-rose-500/10 text-rose-400">
+                    <div
+                      className={`p-2 rounded-lg ${
+                        data?.funnelMeta?.largestDropoff
+                          ? "bg-rose-500/10 text-rose-400"
+                          : "bg-zinc-500/10 text-zinc-400"
+                      }`}
+                    >
                       <AlertTriangle size={16} />
                     </div>
                     <div>
                       <h4 className="text-xs font-bold text-white">Top Drop-off Spot</h4>
                       <p className="text-[10px] text-zinc-400">
-                        Users are dropping off most between Sign Up and Login steps.
+                        {data?.funnelMeta?.largestDropoff
+                          ? `${data.funnelMeta.largestDropoff.rate.toFixed(1)}% of users who reached ${data.funnelMeta.largestDropoff.from} did not continue to ${data.funnelMeta.largestDropoff.to}.`
+                          : "No drop-off measured yet."}
                       </p>
                     </div>
                   </div>
@@ -665,16 +763,12 @@ export default function Dashboard() {
                           strokeWidth="6"
                           fill="transparent"
                           strokeDasharray="213"
-                          strokeDashoffset={
-                            data?.analysis
-                              ? Math.round(213 - (213 * (data.analysis.interactionsDetected > 0 ? 92 : 0)) / 100)
-                              : 213
-                          }
+                          strokeDashoffset={Math.round(213 - (213 * instrumentationPct) / 100)}
                         />
                       </svg>
                       <div className="absolute flex flex-col items-center justify-center">
                         <span className="text-base font-extrabold text-white">
-                          {data?.analysis && data.analysis.interactionsDetected > 0 ? "92%" : "0%"}
+                          {instrumentationPct}%
                         </span>
                         <span className="text-[8px] text-zinc-500 uppercase tracking-widest font-bold">Inst.</span>
                       </div>
@@ -682,28 +776,23 @@ export default function Dashboard() {
                     <div className="flex-1 space-y-1.5">
                       {[
                         {
-                          label: "Pages",
-                          value:
-                            Array.isArray(components) &&
-                            components.some((c) => c.route && c.route !== "(component)")
-                              ? "100%"
-                              : data?.analysis?.routesDetected
-                              ? "100%"
-                              : "0%",
+                          label: "Components detected",
+                          value: String(detectedComponents.length),
                         },
                         {
-                          label: "Components",
-                          value:
-                            (data?.analysis?.componentsDetected ?? 0) > 0 ? "100%" : "0%",
+                          label: "Instrumented",
+                          value: String(instrumentedComponents.length),
                         },
                         {
-                          label: "Events",
-                          value:
-                            (Number(data?.eventsTracked) || 0) > 0 ? "100%" : "0%",
+                          label: "Pending review",
+                          value: String(pendingComponents.length),
                         },
                         {
-                          label: "API Calls",
-                          value: (data?.reposConnected ?? 0) > 0 ? "100%" : "0%",
+                          label: "Events live",
+                          value:
+                            liveEventCount > 0
+                              ? String(liveEventCount)
+                              : `0 (${proposedEventCount} proposed)`,
                         },
                       ].map(({ label, value }) => (
                         <div key={label} className="flex items-center justify-between text-[11px]">

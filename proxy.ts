@@ -1,32 +1,46 @@
-import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
+// ============================================================
+// Aletsch AI — Edge Proxy (Next.js 16 replaces middleware.ts)
+// Enforces Clerk authentication on every non-public route so
+// that no dashboard page or data API is reachable anonymously.
+// ============================================================
 
-// Protecting all routes except auth pages and root landing page if required
-const isProtectedRoute = createRouteMatcher([
-  "/dashboard(.*)",
-  "/projects(.*)",
-  "/repositories(.*)",
-  "/funnel-analysis(.*)",
-  "/events(.*)",
-  "/instrumentation(.*)",
-  "/insights(.*)",
-  "/reports(.*)",
-  "/users(.*)",
-  "/alerts(.*)",
-  "/settings(.*)",
-  "/api/(.*)",
+import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
+import { NextResponse } from "next/server";
+
+/**
+ * Routes that must stay reachable without a Clerk session.
+ *
+ * `/api/ingest` is intentionally public: it is the telemetry write
+ * endpoint called from the *instrumented customer application*, which
+ * has no Clerk session. It is authorised separately by a per-project
+ * write key (see app/api/ingest/route.ts).
+ */
+const isPublicRoute = createRouteMatcher([
+  "/",
+  "/sign-in(.*)",
+  "/sign-up(.*)",
+  "/api/ingest",
+  "/api/health",
 ]);
 
 export default clerkMiddleware(async (auth, req) => {
-  if (isProtectedRoute(req)) {
-    await auth.protect();
+  if (isPublicRoute(req)) return;
+
+  const session = await auth();
+  if (session.userId) return;
+
+  // API callers get a machine-readable 401 instead of an HTML redirect.
+  if (req.nextUrl.pathname.startsWith("/api/")) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  return session.redirectToSignIn();
 });
 
 export const config = {
   matcher: [
-    // Skip Next.js internals and all static files, unless found in search params
-    "/((?!_next|[^?]*\\.(?:html|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)",
-    // Always run for API routes
-    "/(api|trpc)(.*)",
+    // Everything except Next internals and files with an extension.
+    "/((?!_next|.*\\.[\\w]+$).*)",
+    "/api/(.*)",
   ],
 };
