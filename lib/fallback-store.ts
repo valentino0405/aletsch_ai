@@ -33,6 +33,8 @@ class FallbackStore {
   private events: any[] = [];
   private analysisJobs: any[] = [];
   private sourceFiles: any[] = [];
+  private analysisResults: any[] = [];
+  private insights: any[] = [];
 
   getRepositories(userId: string): FallbackRepo[] {
     return this.repositories.filter((r) => r.ownerId === userId);
@@ -59,6 +61,10 @@ class FallbackStore {
     );
   }
 
+  getProjectById(id: string): FallbackProject | undefined {
+    return this.projects.find((project) => project.id === id);
+  }
+
   saveProject(project: FallbackProject): FallbackProject {
     const idx = this.projects.findIndex(
       (p) => p.repositoryUrl === project.repositoryUrl && p.ownerId === project.ownerId
@@ -81,7 +87,7 @@ class FallbackStore {
   }
 
   getEvents(userId: string): any[] {
-    return this.events;
+    return this.events.filter((event) => event.ownerId === userId);
   }
 
   addEvent(event: any) {
@@ -96,6 +102,39 @@ class FallbackStore {
   getJob(id: string) {
     return this.analysisJobs.find((j) => j.id === id);
   }
+
+  saveAnalysisJob(job: any) {
+    const idx = this.analysisJobs.findIndex((item) => item.id === job.id);
+    if (idx >= 0) this.analysisJobs[idx] = { ...this.analysisJobs[idx], ...job };
+    else this.analysisJobs.push(job);
+    return job;
+  }
+
+  getLatestJob(projectId: string) {
+    return this.analysisJobs
+      .filter((job) => job.projectId === projectId)
+      .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))[0];
+  }
+
+  saveAnalysisResult(result: any) {
+    this.analysisResults = this.analysisResults.filter((item) => item.projectId !== result.projectId);
+    this.analysisResults.push(result);
+    return result;
+  }
+
+  getAnalysisResult(projectId: string) {
+    return this.analysisResults.find((result) => result.projectId === projectId);
+  }
+
+  saveInsight(insight: any) {
+    this.insights = this.insights.filter((item) => item.projectId !== insight.projectId);
+    this.insights.push(insight);
+    return insight;
+  }
+
+  getInsights(projectId?: string) {
+    return projectId ? this.insights.filter((item) => item.projectId === projectId) : this.insights;
+  }
 }
 
 let globalStore = global as typeof globalThis & {
@@ -104,6 +143,9 @@ let globalStore = global as typeof globalThis & {
 
 if (!globalStore._fallbackStore) {
   globalStore._fallbackStore = new FallbackStore();
+} else if (typeof globalStore._fallbackStore.getInsights !== "function") {
+  Object.setPrototypeOf(globalStore._fallbackStore, FallbackStore.prototype);
+  (globalStore._fallbackStore as any).insights ||= [];
 }
 
 export const fallbackStore = globalStore._fallbackStore;

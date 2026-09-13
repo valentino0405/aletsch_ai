@@ -39,6 +39,9 @@ export default function Repositories() {
               status: r.status || "Synced",
             }))
           );
+        } else {
+          const json = await res.json().catch(() => ({}));
+          setConnectError(json.error || "Failed to load repositories.");
         }
       } catch (err) {
         console.error("Failed to load repositories:", err);
@@ -82,7 +85,11 @@ export default function Repositories() {
 
       // Auto-trigger sync/analysis in the background
       if (json.id) {
-        fetch(`/api/repositories/${json.id}/sync`, { method: "POST" }).catch(() => {});
+        const syncResponse = await fetch(`/api/repositories/${json.id}/sync`, { method: "POST" });
+        if (!syncResponse.ok) {
+          const syncData = await syncResponse.json().catch(() => ({}));
+          setConnectError(syncData.error || "Repository connected, but sync failed.");
+        }
       }
     } catch (err: any) {
       setConnectError("Network error. Make sure the dev server is running.");
@@ -94,13 +101,18 @@ export default function Repositories() {
   // Trigger re-sync for an existing repo
   const handleSync = async (repoId: string) => {
     setSyncingId(repoId);
+    setConnectError("");
     try {
-      await fetch(`/api/repositories/${repoId}/sync`, { method: "POST" });
+      const response = await fetch(`/api/repositories/${repoId}/sync`, { method: "POST" });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || "Repository sync failed.");
+      }
       setConnectedRepos((prev) =>
         prev.map((r) => (r.id === repoId ? { ...r, status: "Synced" } : r))
       );
-    } catch (err) {
-      console.error("Sync failed:", err);
+    } catch (err: any) {
+      setConnectError(err.message || "Repository sync failed.");
     } finally {
       setSyncingId(null);
     }

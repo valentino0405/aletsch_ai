@@ -188,11 +188,11 @@ export default function Dashboard() {
     data?.funnel && data.funnel.length > 0
       ? data.funnel
       : [
-          { name: "Landing Page", rate: "100%", users: "0", drop: null, active: true },
-          { name: "Sign Up", rate: "0%", users: "0", drop: "0%", active: true },
-          { name: "Login", rate: "0%", users: "0", drop: "0%", active: true },
-          { name: "Create Task", rate: "0%", users: "0", drop: "0%", active: true },
-          { name: "Task Completed", rate: "0%", users: "0", drop: "0%", active: true },
+          { name: "Landing Page", percent: 100, users: 0, drop: 0, active: true },
+          { name: "Sign Up", percent: 0, users: 0, drop: 0, active: true },
+          { name: "Login", percent: 0, users: 0, drop: 0, active: true },
+          { name: "Create Task", percent: 0, users: 0, drop: 0, active: true },
+          { name: "Task Completed", percent: 0, users: 0, drop: 0, active: true },
         ];
 
   return (
@@ -518,7 +518,7 @@ export default function Dashboard() {
                         <span className="text-[11px] font-semibold text-zinc-300 mt-3 text-center whitespace-nowrap">
                           {step.name}
                         </span>
-                        <span className="text-[12px] font-bold text-white mt-1">{step.rate}</span>
+                        <span className="text-[12px] font-bold text-white mt-1">{step.percent}%</span>
                         <span className="text-[9px] text-zinc-500 mt-0.5">{step.users} users</span>
                       </div>
                     ))}

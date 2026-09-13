@@ -1,10 +1,25 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { Search, Bell, GitBranch, Terminal, ShieldAlert, Sparkles } from "lucide-react";
 
 export default function Topbar() {
   const [searchFocused, setSearchFocused] = useState(false);
+  const [projects, setProjects] = useState<Array<{ id?: string; _id?: string; name?: string; status?: string }>>([]);
+  const [projectMenuOpen, setProjectMenuOpen] = useState(false);
+  const pathname = usePathname();
+
+  useEffect(() => {
+    fetch("/api/projects")
+      .then((response) => (response.ok ? response.json() : []))
+      .then((data) => setProjects(Array.isArray(data) ? data : []))
+      .catch(() => setProjects([]));
+  }, [pathname]);
+
+  const currentProjectId = pathname.match(/^\/projects\/([^/]+)/)?.[1];
+  const currentProject = projects.find((project) => (project._id || project.id) === currentProjectId) || projects[0] || null;
 
   return (
     <header className="h-16 border-b border-zinc-800/60 bg-[#06060c]/80 backdrop-blur-md sticky top-0 z-30 flex items-center justify-between px-6">
@@ -31,11 +46,53 @@ export default function Topbar() {
       {/* Right controls */}
       <div className="flex items-center gap-4">
         {/* Project select selector */}
-        <div className="flex items-center gap-2 bg-zinc-900/30 border border-zinc-800/80 rounded-lg px-3 py-1.5 text-xs text-zinc-200">
-          <Terminal size={14} className="text-indigo-400" />
-          <span className="font-semibold">TaskFlow Pro</span>
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-          <span className="text-zinc-500 text-[10px]">Connected</span>
+        <div className="relative">
+          <button
+            onClick={() => setProjectMenuOpen((open) => !open)}
+            className="flex items-center gap-2 bg-zinc-900/30 border border-zinc-800/80 rounded-lg px-3 py-1.5 text-xs text-zinc-200 hover:bg-zinc-900/70 transition"
+          >
+            <Terminal size={14} className="text-indigo-400" />
+            <span className="font-semibold max-w-28 truncate">{currentProject?.name || "No project"}</span>
+            <span className={`w-1.5 h-1.5 rounded-full ${currentProject ? "bg-emerald-400 animate-pulse" : "bg-zinc-600"}`} />
+            <span className="text-zinc-500 text-[10px]">{currentProject?.status || "Disconnected"}</span>
+          </button>
+
+          {projectMenuOpen && (
+            <div className="absolute right-0 top-full mt-2 w-64 rounded-xl border border-zinc-800 bg-zinc-950 shadow-2xl p-1.5 z-50">
+              {projects.length > 0 ? (
+                <>
+                  <p className="px-3 py-2 text-[10px] uppercase font-bold tracking-wider text-zinc-600">Projects</p>
+                  {projects.map((project) => {
+                    const id = project._id || project.id;
+                    return (
+                      <Link
+                        key={id}
+                        href={id ? `/projects/${id}/analytics` : "/projects"}
+                        onClick={() => setProjectMenuOpen(false)}
+                        className={`flex items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-xs transition ${
+                          id === (currentProject?._id || currentProject?.id)
+                            ? "bg-indigo-600/15 text-indigo-300"
+                            : "text-zinc-300 hover:bg-zinc-900 hover:text-white"
+                        }`}
+                      >
+                        <span className="truncate">{project.name || "Unnamed project"}</span>
+                        <span className="text-[10px] text-zinc-600">{project.status || "Connected"}</span>
+                      </Link>
+                    );
+                  })}
+                  <div className="border-t border-zinc-800 mt-1 pt-1">
+                    <Link href="/projects" onClick={() => setProjectMenuOpen(false)} className="block rounded-lg px-3 py-2.5 text-xs text-indigo-400 hover:bg-zinc-900 transition">
+                      + Create new project
+                    </Link>
+                  </div>
+                </>
+              ) : (
+                <Link href="/projects" onClick={() => setProjectMenuOpen(false)} className="block rounded-lg px-3 py-3 text-xs text-indigo-400 hover:bg-zinc-900 transition">
+                  + Create new project
+                </Link>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Sync Status Button */}

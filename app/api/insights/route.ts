@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import { getDb } from "@/lib/mongodb";
+import { getDb, getDbOrNull } from "@/lib/mongodb";
+import { fallbackStore } from "@/lib/fallback-store";
 import { generateProjectInsights } from "@/lib/insight-runner";
+import { ObjectId } from "mongodb";
 
 export async function GET(req: Request) {
   try {
@@ -14,7 +16,11 @@ export async function GET(req: Request) {
     const projectId = searchParams.get("projectId");
 
 
-    const db = await getDb();
+    const db = await getDbOrNull();
+    if (!db) {
+      const fallbackInsights = fallbackStore.getInsights(projectId || undefined);
+      return NextResponse.json(fallbackInsights);
+    }
 
     // Fetch projects to scope queries
     const projects = await db.collection("projects").find({ ownerId: userId }).toArray();
@@ -85,8 +91,32 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing projectId" }, { status: 400 });
     }
 
-    const db = await getDb();
-    const project = await db.collection("projects").findOne({ _id: projectId as any, ownerId: userId });
+    const db = await getDbOrNull();
+    if (!db) {
+      const result = fallbackStore.getAnalysisResult(projectId);
+      const insight = result?.interactions?.length ? {
+        projectId,
+        type: "positive",
+        title: "Interaction map generated",
+        description: `${result.interactions.length} user interactions were detected across ${result.filesParsed} parsed files.`,
+        recommendation: "Review the detected event mappings and choose the highest-value conversion actions.",
+        color: "border-emerald-500/30 text-emerald-400 bg-emerald-500/5 glow-emerald",
+        impact: "Low Impact",
+        createdAt: new Date().toISOString(),
+      } : null;
+      if (insight) fallbackStore.saveInsight(insight);
+      return NextResponse.json({
+        success: true,
+        insight,
+        message: "Fallback analysis insights generated.",
+      });
+    }
+    let project;
+    try {
+      project = await db.collection("projects").findOne({ _id: new ObjectId(projectId), ownerId: userId });
+    } catch {
+      project = await db.collection("projects").findOne({ _id: projectId as any, ownerId: userId });
+    }
     if (!project) {
       return NextResponse.json({ error: "Project not found or unauthorized access." }, { status: 404 });
     }
