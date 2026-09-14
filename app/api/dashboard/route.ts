@@ -4,18 +4,39 @@ import { getDbOrNull } from "@/lib/mongodb";
 import { fallbackStore } from "@/lib/fallback-store";
 import { resolveFunnel, formatRate } from "@/lib/analytics/funnel";
 import { computeTrends } from "@/lib/analytics/trends";
-import { ObjectId } from "mongodb";
+
+/**
+ * The time windows the dashboard's range picker can ask for. The picker used
+ * to be decorative — every response was a fixed 7 days regardless of the
+ * selection — so the label and the numbers could disagree. The window is now
+ * a real parameter, and the response echoes back the one it actually used.
+ */
+const RANGES: Record<string, { days: number; label: string }> = {
+  "1d": { days: 1, label: "Today" },
+  "7d": { days: 7, label: "Last 7 days" },
+  "30d": { days: 30, label: "Last 30 days" },
+};
+const DEFAULT_RANGE = "7d";
+
+function resolveRange(param: string | null) {
+  const key = param && RANGES[param] ? param : DEFAULT_RANGE;
+  const { days, label } = RANGES[key];
+  const start = new Date();
+  start.setUTCDate(start.getUTCDate() - (days - 1));
+  start.setUTCHours(0, 0, 0, 0);
+  return { key, days, label, startIso: start.toISOString() };
+}
 
 /** A flat, explicitly empty trend block for the no-data branches. */
-function emptyTrends() {
-  const series = Array.from({ length: 7 }, (_, index) => {
+function emptyTrends(days = 7, window = DEFAULT_RANGE) {
+  const series = Array.from({ length: days }, (_, index) => {
     const day = new Date();
-    day.setUTCDate(day.getUTCDate() - (6 - index));
+    day.setUTCDate(day.getUTCDate() - (days - 1 - index));
     return { date: day.toISOString().slice(0, 10), events: 0, users: 0 };
   });
   const noChange = { percent: null, direction: "flat" as const, label: "No prior data" };
   return {
-    window: "7d",
+    window,
     hasData: false,
     series,
     eventSparkline: series.map(() => 0),
@@ -34,6 +55,10 @@ export async function GET(req: Request) {
 
     const { searchParams } = new URL(req.url);
     const projectIdParam = searchParams.get("projectId");
+    const range = resolveRange(searchParams.get("range"));
+    // Every event-derived count below is filtered by this, so the selected
+    // range and the numbers on screen describe the same period.
+    const inRange = { timestamp: { $gte: range.startIso } };
 
     const db = await getDbOrNull();
     if (!db) {
@@ -68,6 +93,8 @@ export async function GET(req: Request) {
         .filter(Boolean)
         .sort((a: any, b: any) => String(b.createdAt).localeCompare(String(a.createdAt)));
       return NextResponse.json({
+        range: { key: range.key, label: range.label, days: range.days },
+        storage: "in-memory",
         totalUsers: "0",
         eventsTracked: String(fallbackEvents.length || interactions.length),
         componentsDetected,
@@ -77,7 +104,7 @@ export async function GET(req: Request) {
         atRiskDropoffs: 0,
         funnel: [],
         funnelMeta: { name: null, source: null, largestDropoff: null, insufficientData: true },
-        trends: emptyTrends(),
+        trends: emptyTrends(range.days, range.key),
         topEvents,
         projects: fbProjects.map((p) => ({ id: p.id, name: p.name })),
         selectedProject: scopedProjects[0]
@@ -101,10 +128,24 @@ export async function GET(req: Request) {
           status: job.status,
         })),
         systemHealth: {
-          repoConnection: 100,
-          eventProcessing: fallbackEvents.length > 0 ? 100 : 60,
-          aiAnalysis: latestAnalysis ? 100 : 60,
-          dashboardService: 100,
+          repoConnection: {
+            state: fbRepos.length > 0 ? "ok" : "idle",
+            detail: fbRepos.length > 0
+              ? `${fbRepos.length} repositor${fbRepos.length === 1 ? "y" : "ies"} connected`
+              : "No repository connected",
+          },
+          eventProcessing: {
+            state: fallbackEvents.length > 0 ? "ok" : "idle",
+            detail: fallbackEvents.length > 0
+              ? `${fallbackEvents.length} events held in memory`
+              : "No events received yet",
+          },
+          aiAnalysis: {
+            state: latestAnalysis ? "ok" : "idle",
+            detail: latestAnalysis ? "Analysis completed" : "No analysis has completed yet",
+          },
+          // The database is unreachable, so nothing here survives a restart.
+          dashboardService: { state: "degraded", detail: "In-memory store — no database" },
         },
       });
     }
@@ -130,11 +171,9 @@ export async function GET(req: Request) {
       projectIds = allProjects.map((p) => p._id.toString());
     }
 
-    const projects = allProjects;
-
-
     if (projectIds.length === 0) {
       return NextResponse.json({
+        range: { key: range.key, label: range.label, days: range.days },
         totalUsers: 0,
         eventsTracked: 0,
         componentsDetected: 0,
@@ -144,29 +183,31 @@ export async function GET(req: Request) {
         atRiskDropoffs: 0,
         funnel: [],
         funnelMeta: { name: null, source: null, largestDropoff: null, insufficientData: true },
-        trends: emptyTrends(),
+        trends: emptyTrends(range.days, range.key),
         topEvents: [],
         recentActivity: [],
         projects: projectsMeta,
         selectedProject: null,
         systemHealth: {
-          repoConnection: 0,
-          eventProcessing: 0,
-          aiAnalysis: 0,
-          dashboardService: 100,
+          repoConnection: { state: "idle", detail: "No repository connected" },
+          eventProcessing: { state: "idle", detail: "No events received yet" },
+          aiAnalysis: { state: "idle", detail: "No analysis has completed yet" },
+          dashboardService: { state: "ok", detail: "Responding" },
         },
       });
     }
 
-      // 1. Total Users (Unique userIds in events)
+      // 1. Total Users (Unique userIds in events within the selected range)
       const uniqueUsersRes = await db.collection("events").distinct("userId", {
-        projectId: { $in: projectIds }
+        projectId: { $in: projectIds },
+        ...inRange,
       });
       const totalUsers = uniqueUsersRes.length;
 
       // 2. Events Tracked
       const eventsCount = await db.collection("events").countDocuments({
-        projectId: { $in: projectIds }
+        projectId: { $in: projectIds },
+        ...inRange,
       });
 
       // 3. Component count (from analysis)
@@ -177,9 +218,10 @@ export async function GET(req: Request) {
       // 4. Repos connected count
       const reposCount = await db.collection("repositories").countDocuments({ ownerId: userId });
 
-      // 5. Average Session Time
+      // 5. Average Session Time (sessions that started inside the range)
       const sessions = await db.collection("sessions").find({
-        projectId: { $in: projectIds }
+        projectId: { $in: projectIds },
+        startedAt: { $gte: range.startIso },
       }).toArray();
       
       let avgSessionTimeStr = "0s";
@@ -203,7 +245,7 @@ export async function GET(req: Request) {
 
       // 6. Top Events Aggregation
       const topEvents = await db.collection("events").aggregate([
-        { $match: { projectId: { $in: projectIds } } },
+        { $match: { projectId: { $in: projectIds }, ...inRange } },
         { $group: { _id: "$eventName", count: { $sum: "$occurrences" }, category: { $first: "$category" } } },
         { $sort: { count: -1 } },
         { $limit: 5 }
@@ -219,7 +261,7 @@ export async function GET(req: Request) {
       // `resolveFunnel` returns null when there is nothing to measure, and
       // the response says so rather than showing a zeroed-out funnel.
       const funnelResult = await resolveFunnel(db, projectIds);
-      const trends = await computeTrends(db, projectIds, 7);
+      const trends = await computeTrends(db, projectIds, range.days);
       const funnel = (funnelResult?.steps ?? []).map((step) => ({
         name: step.name,
         event: step.event,
@@ -284,6 +326,7 @@ export async function GET(req: Request) {
       : projectsMeta[0] || null;
 
     return NextResponse.json({
+      range: { key: range.key, label: range.label, days: range.days },
       totalUsers: totalUsers.toLocaleString(),
       eventsTracked: eventsCount.toLocaleString(),
       componentsDetected: analysisSummary?.interactionsDetected ?? componentsCount,
@@ -302,7 +345,7 @@ export async function GET(req: Request) {
         : { name: null, source: null, largestDropoff: null, insufficientData: true },
       topEvents: formattedTopEvents,
       trends: {
-        window: "7d",
+        window: range.key,
         hasData: trends.hasData,
         series: trends.series,
         eventSparkline: trends.eventSparkline,
@@ -324,11 +367,30 @@ export async function GET(req: Request) {
             completedAt: analysisSummary.completedAt,
           }
         : null,
+      // Subsystem states, each backed by a count this request actually made.
+      // These used to be percentages like 98 and 60, which were invented —
+      // nothing measured them. A subsystem is either doing work, idle with
+      // nothing to do yet, or not configured.
       systemHealth: {
-        repoConnection: reposCount > 0 ? 100 : 0,
-        eventProcessing: eventsCount > 0 ? 100 : 98,
-        aiAnalysis: componentsCount > 0 ? 100 : 60,
-        dashboardService: 100,
+        repoConnection: {
+          state: reposCount > 0 ? "ok" : "idle",
+          detail: reposCount > 0
+            ? `${reposCount} repositor${reposCount === 1 ? "y" : "ies"} connected`
+            : "No repository connected",
+        },
+        eventProcessing: {
+          state: eventsCount > 0 ? "ok" : "idle",
+          detail: eventsCount > 0
+            ? `${eventsCount.toLocaleString()} events in ${range.label.toLowerCase()}`
+            : "No events received yet",
+        },
+        aiAnalysis: {
+          state: componentsCount > 0 ? "ok" : "idle",
+          detail: componentsCount > 0
+            ? `${componentsCount.toLocaleString()} components detected`
+            : "No analysis has completed yet",
+        },
+        dashboardService: { state: "ok", detail: "Responding" },
       },
     });
 

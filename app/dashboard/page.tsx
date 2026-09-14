@@ -2,12 +2,11 @@
 
 import { useUser } from "@clerk/nextjs";
 import { useState, useEffect, useCallback } from "react";
+import Link from "next/link";
 import DashboardLayout from "@/components/navigation/DashboardLayout";
 import {
   Users as UsersIcon,
   Activity,
-  Flame,
-  Clock,
   AlertTriangle,
   Sparkles,
   TrendingUp,
@@ -40,7 +39,36 @@ interface TrendDelta {
   label: string;
 }
 
+interface HealthSignal {
+  state: "ok" | "idle" | "degraded";
+  detail: string;
+}
+
+interface TopEvent {
+  name: string;
+  count: string;
+  cat: string;
+}
+
+interface ActivityEntry {
+  desc: string;
+  time: string;
+  type: string;
+  status?: string;
+}
+
+interface FunnelStep {
+  name: string;
+  event: string;
+  users: number;
+  percent: number;
+  drop: number;
+  dropFromPrevious: number;
+}
+
 interface DashboardData {
+  range?: { key: string; label: string; days: number };
+  storage?: string;
   totalUsers: string | number;
   eventsTracked: string | number;
   componentsDetected: number;
@@ -48,7 +76,7 @@ interface DashboardData {
   conversionRate: string;
   averageSessionTime: string;
   atRiskDropoffs: number;
-  funnel: any[];
+  funnel: FunnelStep[];
   funnelMeta?: {
     name: string | null;
     source: string | null;
@@ -64,8 +92,8 @@ interface DashboardData {
     users: TrendDelta;
     events: TrendDelta;
   };
-  topEvents: any[];
-  recentActivity: any[];
+  topEvents: TopEvent[];
+  recentActivity: ActivityEntry[];
   projects: ProjectMeta[];
   selectedProject: ProjectMeta | null;
   analysis: {
@@ -78,64 +106,115 @@ interface DashboardData {
     completedAt: string;
   } | null;
   systemHealth: {
-    repoConnection: number;
-    eventProcessing: number;
-    aiAnalysis: number;
-    dashboardService: number;
+    repoConnection: HealthSignal;
+    eventProcessing: HealthSignal;
+    aiAnalysis: HealthSignal;
+    dashboardService: HealthSignal;
   };
 }
 
+/** The ranges /api/dashboard accepts. The key is sent; the label is shown. */
+const DATE_RANGES: { key: string; label: string }[] = [
+  { key: "1d", label: "Today" },
+  { key: "7d", label: "Last 7 days" },
+  { key: "30d", label: "Last 30 days" },
+];
+
+/** Matches the tone used on the Projects, Repositories and analytics pages. */
+function statusStyle(status: string): string {
+  const value = (status || "").toLowerCase();
+  if (value === "ready" || value === "synced" || value === "connected") {
+    return "text-emerald-400 bg-emerald-500/10 border-emerald-500/20";
+  }
+  if (value === "analyzing" || value === "syncing" || value === "queued" || value === "running") {
+    return "text-indigo-300 bg-indigo-500/10 border-indigo-500/20";
+  }
+  if (value === "error" || value === "failed") return "text-rose-300 bg-rose-500/10 border-rose-500/20";
+  return "text-zinc-400 bg-zinc-800/60 border-zinc-800";
+}
+
+/** "owner/repo" from a GitHub URL, falling back to the URL without its scheme. */
+function repositoryLabel(url?: string): string {
+  if (!url) return "No repository";
+  const match = url.match(/github\.com[/:]([^/]+\/[^/.]+)/i);
+  return match ? match[1] : url.replace(/^https?:\/\//, "");
+}
+
+/** Tone for a subsystem signal. "idle" is not a failure — it means no work yet. */
+const HEALTH_TONE: Record<string, { dot: string; text: string }> = {
+  ok: { dot: "bg-emerald-400", text: "text-emerald-400" },
+  idle: { dot: "bg-zinc-600", text: "text-zinc-500" },
+  degraded: { dot: "bg-amber-400", text: "text-amber-400" },
+};
+
 export default function Dashboard() {
   const { user, isLoaded } = useUser();
-  const [dateRange, setDateRange] = useState("Last 7 days");
+  // Holds the range *key* ("7d"), which is what the API accepts. This used to
+  // hold a display label that was never sent anywhere, so changing the range
+  // relabelled the button without changing a single number on the page.
+  const [rangeKey, setRangeKey] = useState("7d");
   const [showRangeDropdown, setShowRangeDropdown] = useState(false);
   const [data, setData] = useState<DashboardData | null>(null);
   const [insights, setInsights] = useState<any[]>([]);
   const [components, setComponents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
   const [projects, setProjects] = useState<ProjectMeta[]>([]);
   const [showProjectDropdown, setShowProjectDropdown] = useState(false);
 
   // Fetch all data for the selected project
-  const fetchAll = useCallback(async (projectId?: string) => {
-    setLoading(true);
-    try {
-      const pid = projectId || selectedProjectId;
-      const params = pid ? `?projectId=${pid}` : "";
+  const fetchAll = useCallback(
+    async (projectId?: string, range?: string) => {
+      setLoading(true);
+      setLoadError("");
+      try {
+        const pid = projectId ?? selectedProjectId;
+        const activeRange = range ?? rangeKey;
+        const query = new URLSearchParams({ range: activeRange });
+        if (pid) query.set("projectId", pid);
+        const scoped = pid ? `?projectId=${encodeURIComponent(pid)}` : "";
 
-      const [dashRes, insightsRes, compRes] = await Promise.all([
-        fetch(`/api/dashboard${params}`),
-        fetch(`/api/insights${pid ? `?projectId=${pid}` : ""}`),
-        fetch(`/api/instrumentation${pid ? `?projectId=${pid}` : ""}`),
-      ]);
+        const [dashRes, insightsRes, compRes] = await Promise.all([
+          fetch(`/api/dashboard?${query.toString()}`),
+          fetch(`/api/insights${scoped}`),
+          fetch(`/api/instrumentation${scoped}`),
+        ]);
 
-      if (dashRes.ok) {
-        const dashData = await dashRes.json();
-        setData(dashData);
-        // Bootstrap project list from first response
-        if (dashData.projects?.length > 0) {
-          setProjects(dashData.projects);
-          if (!selectedProjectId && dashData.projects[0]) {
-            setSelectedProjectId(dashData.projects[0].id);
+        if (dashRes.ok) {
+          const dashData = await dashRes.json();
+          setData(dashData);
+          // Bootstrap project list from first response
+          if (dashData.projects?.length > 0) {
+            setProjects(dashData.projects);
+            if (!pid && dashData.projects[0]) {
+              setSelectedProjectId(dashData.projects[0].id);
+            }
           }
+        } else {
+          const problem = await dashRes.json().catch(() => ({}));
+          setLoadError(problem.error || "Dashboard data could not be loaded.");
         }
+        if (insightsRes.ok) setInsights(await insightsRes.json());
+        if (compRes.ok) {
+          const compData = await compRes.json();
+          setComponents(Array.isArray(compData) ? compData : compData.components || []);
+        }
+      } catch (err) {
+        console.error("Failed to load dashboard:", err);
+        setLoadError("Could not reach the dashboard service.");
+      } finally {
+        setLoading(false);
       }
-      if (insightsRes.ok) setInsights(await insightsRes.json());
-      if (compRes.ok) {
-        const compData = await compRes.json();
-        setComponents(Array.isArray(compData) ? compData : compData.components || []);
-      }
-    } catch (err) {
-      console.error("Failed to load dashboard:", err);
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedProjectId]);
+    },
+    [selectedProjectId, rangeKey]
+  );
 
-  // Initial load
+  // Initial load. fetchAll is stable for the empty selection it reads here;
+  // later loads are driven explicitly by the project and range handlers.
   useEffect(() => {
     fetchAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Re-fetch when project changes
@@ -145,22 +224,36 @@ export default function Dashboard() {
     fetchAll(proj.id);
   };
 
+  // Re-fetch when the range changes, so the label and the numbers agree.
+  const handleRangeSelect = (key: string) => {
+    setRangeKey(key);
+    setShowRangeDropdown(false);
+    fetchAll(undefined, key);
+  };
+
+  const rangeLabel =
+    DATE_RANGES.find((entry) => entry.key === rangeKey)?.label ?? "Last 7 days";
+
   const selectedProject = projects.find((p) => p.id === selectedProjectId) || data?.selectedProject || null;
 
-  // Trend labels and sparklines come from /api/dashboard, which measures
-  // the last 7 days against the 7 before. Nothing here is illustrative:
-  // with no events the series is flat and the label says so.
+  // Trend labels and sparklines come from /api/dashboard, which measures the
+  // selected range against the equally-long window before it. Nothing here is
+  // illustrative: with no events the series is flat and the label says so.
   const trends = data?.trends;
-  const flatSeries = [0, 0, 0, 0, 0, 0, 0];
+  const rangeDays = data?.range?.days ?? 7;
+  const flatSeries = Array.from({ length: rangeDays }, () => 0);
   const userSpark = trends?.userSparkline?.length ? trends.userSparkline : flatSeries;
   const eventSpark = trends?.eventSparkline?.length ? trends.eventSparkline : flatSeries;
 
+  // `change` is only paired with a trend arrow when a delta was actually
+  // measured. The other three cards carry a plain caption instead — an
+  // upward arrow next to "Auto-detected" would imply a rise nobody computed.
   const metrics = [
     {
       title: "Total Users",
       value: String(data?.totalUsers ?? "0"),
       change: trends?.users.label ?? "No prior data",
-      isPositive: trends?.users.direction !== "down",
+      direction: trends?.users.direction ?? null,
       icon: UsersIcon,
       colorClass: "text-indigo-400",
       bgClass: "bg-indigo-500/10",
@@ -171,7 +264,7 @@ export default function Dashboard() {
       title: "Events Tracked",
       value: String(data?.eventsTracked ?? "0"),
       change: trends?.events.label ?? "No prior data",
-      isPositive: trends?.events.direction !== "down",
+      direction: trends?.events.direction ?? null,
       icon: Activity,
       colorClass: "text-purple-400",
       bgClass: "bg-purple-500/10",
@@ -182,7 +275,7 @@ export default function Dashboard() {
       title: "Repos Connected",
       value: String(data?.reposConnected ?? "0"),
       change: `${data?.reposConnected ?? 0} active`,
-      isPositive: true,
+      direction: null,
       icon: GitBranch,
       colorClass: "text-cyan-400",
       bgClass: "bg-cyan-500/10",
@@ -193,7 +286,7 @@ export default function Dashboard() {
       title: "Interactions",
       value: String(data?.analysis?.interactionsDetected ?? data?.componentsDetected ?? "0"),
       change: "Auto-detected",
-      isPositive: true,
+      direction: null,
       icon: MousePointerClick,
       colorClass: "text-emerald-400",
       bgClass: "bg-emerald-500/10",
@@ -207,7 +300,7 @@ export default function Dashboard() {
         data?.funnelMeta?.largestDropoff
           ? `Worst: ${data.funnelMeta.largestDropoff.rate.toFixed(1)}%`
           : "None measured",
-      isPositive: (data?.atRiskDropoffs ?? 0) === 0,
+      direction: null,
       icon: AlertTriangle,
       colorClass: "text-rose-400",
       bgClass: "bg-rose-500/10",
@@ -238,6 +331,51 @@ export default function Dashboard() {
   // panel renders an empty state instead of a placeholder journey.
   const funnelSteps = data?.funnel ?? [];
   const hasFunnel = funnelSteps.length > 0 && !data?.funnelMeta?.insufficientData;
+
+  const EVENT_CATEGORY_COLOR: Record<string, string> = {
+    Pageview: "bg-indigo-500/20 text-indigo-300",
+    Interaction: "bg-purple-500/20 text-purple-300",
+    System: "bg-cyan-500/20 text-cyan-300",
+    Form: "bg-emerald-500/20 text-emerald-300",
+  };
+  const topEvents = (data?.topEvents ?? []).map((event) => ({
+    name: event.name,
+    count: event.count,
+    cat: event.cat,
+    color: EVENT_CATEGORY_COLOR[event.cat] ?? "bg-zinc-500/20 text-zinc-300",
+  }));
+
+  const IDLE_SIGNAL: HealthSignal = { state: "idle", detail: "Not reported" };
+  const healthRows = [
+    { name: "Repository Connection", signal: data?.systemHealth?.repoConnection ?? IDLE_SIGNAL },
+    { name: "Event Processing", signal: data?.systemHealth?.eventProcessing ?? IDLE_SIGNAL },
+    { name: "AI Analysis Engine", signal: data?.systemHealth?.aiAnalysis ?? IDLE_SIGNAL },
+    { name: "Dashboard Service", signal: data?.systemHealth?.dashboardService ?? IDLE_SIGNAL },
+  ];
+  // The summary badge reflects the rows beneath it. "All systems OK" is only
+  // claimed when every subsystem actually reports ok.
+  const healthSummary = healthRows.some((row) => row.signal.state === "degraded")
+    ? { tone: "degraded", label: "Degraded" }
+    : healthRows.every((row) => row.signal.state === "ok")
+    ? { tone: "ok", label: "All Systems OK" }
+    : { tone: "idle", label: "Awaiting data" };
+
+  const ACTIVITY_ICON: Record<string, typeof Activity> = {
+    code: Code,
+    alert: AlertTriangle,
+    sync: CheckCircle2,
+  };
+  const ACTIVITY_COLOR: Record<string, string> = {
+    code: "text-cyan-400",
+    alert: "text-rose-400",
+    sync: "text-emerald-400",
+  };
+  const recentActivity = (data?.recentActivity ?? []).map((entry) => ({
+    desc: entry.desc,
+    time: entry.time,
+    icon: ACTIVITY_ICON[entry.type] ?? Activity,
+    color: ACTIVITY_COLOR[entry.type] ?? "text-indigo-400",
+  }));
 
   return (
     <DashboardLayout>
@@ -280,9 +418,9 @@ export default function Dashboard() {
                   {projects.length === 0 ? (
                     <div className="px-3 py-4 text-center text-xs text-zinc-500">
                       No projects yet.{" "}
-                      <a href="/projects" className="text-indigo-400 hover:underline">
+                      <Link href="/projects" className="text-indigo-400 hover:underline">
                         Add one
-                      </a>
+                      </Link>
                     </div>
                   ) : (
                     <>
@@ -298,8 +436,10 @@ export default function Dashboard() {
                         >
                           <span
                             className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                              proj.status === "Ready" || proj.status === "Analyzing"
+                              proj.status === "Ready"
                                 ? "bg-emerald-400"
+                                : proj.status === "Analyzing"
+                                ? "bg-indigo-400 animate-pulse"
                                 : "bg-zinc-600"
                             }`}
                           />
@@ -310,13 +450,13 @@ export default function Dashboard() {
                         </button>
                       ))}
                       <div className="border-t border-zinc-800 mt-1 pt-1">
-                        <a
+                        <Link
                           href="/projects"
                           className="w-full text-left px-3 py-2 rounded-lg text-xs text-indigo-400 hover:bg-zinc-900 hover:text-indigo-300 transition flex items-center gap-2"
                         >
                           <Zap size={11} />
                           Manage Projects
-                        </a>
+                        </Link>
                       </div>
                     </>
                   )}
@@ -324,28 +464,37 @@ export default function Dashboard() {
               )}
             </div>
 
-            {/* Date range picker */}
+            {/* Date range picker. Only the ranges /api/dashboard can actually
+                measure are offered — a "Custom range" option used to sit here
+                with nothing behind it. */}
             <div className="relative">
               <button
                 onClick={() => setShowRangeDropdown(!showRangeDropdown)}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg border border-zinc-800/80 bg-zinc-950/40 text-xs font-semibold text-zinc-300 hover:text-white transition"
+                className="flex items-center gap-2 px-4 py-2 rounded-lg border border-zinc-800/80 bg-zinc-950/40 text-xs font-semibold text-zinc-300 hover:text-white transition cursor-pointer"
               >
                 <Calendar size={13} className="text-indigo-400" />
-                <span>{dateRange}</span>
-                <ChevronDown size={13} className="text-zinc-500" />
+                <span>{rangeLabel}</span>
+                <ChevronDown
+                  size={13}
+                  className={`text-zinc-500 transition-transform ${showRangeDropdown ? "rotate-180" : ""}`}
+                />
               </button>
               {showRangeDropdown && (
                 <div className="absolute right-0 mt-2 w-48 rounded-lg border border-zinc-800 bg-zinc-950 shadow-2xl p-1 z-50">
-                  {["Today", "Last 7 days", "Last 30 days", "Custom range"].map((range) => (
+                  {DATE_RANGES.map((range) => (
                     <button
-                      key={range}
-                      onClick={() => {
-                        setDateRange(range);
-                        setShowRangeDropdown(false);
-                      }}
-                      className="w-full text-left px-3 py-2 rounded-md text-xs hover:bg-zinc-900 text-zinc-300 hover:text-white transition"
+                      key={range.key}
+                      onClick={() => handleRangeSelect(range.key)}
+                      className={`w-full text-left px-3 py-2 rounded-md text-xs transition flex items-center gap-2 cursor-pointer ${
+                        rangeKey === range.key
+                          ? "bg-indigo-600/15 text-indigo-300"
+                          : "hover:bg-zinc-900 text-zinc-300 hover:text-white"
+                      }`}
                     >
-                      {range}
+                      <span className="truncate">{range.label}</span>
+                      {rangeKey === range.key && (
+                        <CheckCircle2 size={11} className="text-indigo-400 ml-auto shrink-0" />
+                      )}
                     </button>
                   ))}
                 </div>
@@ -363,19 +512,30 @@ export default function Dashboard() {
               <span className="font-bold text-white">{selectedProject.name}</span>
             </div>
             <span className="text-[10px] font-mono text-zinc-600 border border-zinc-800 rounded px-1.5 py-0.5 truncate max-w-[200px]">
-              {selectedProject.repositoryUrl?.replace("https://", "")}
+              {repositoryLabel(selectedProject.repositoryUrl)}
             </span>
             <span
-              className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                selectedProject.status === "Ready"
-                  ? "bg-emerald-500/10 text-emerald-400"
-                  : selectedProject.status === "Analyzing"
-                  ? "bg-amber-500/10 text-amber-400"
-                  : "bg-zinc-800 text-zinc-400"
-              }`}
+              className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${statusStyle(
+                selectedProject.status || ""
+              )}`}
             >
               {selectedProject.status || "Connected"}
             </span>
+          </div>
+        )}
+
+        {loadError && (
+          <div className="flex items-center gap-2 rounded-lg border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-xs text-rose-300">
+            <AlertTriangle size={13} className="shrink-0" />
+            {loadError}
+          </div>
+        )}
+
+        {data?.storage === "in-memory" && (
+          <div className="flex items-center gap-2 rounded-lg border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-xs text-amber-300">
+            <AlertTriangle size={13} className="shrink-0" />
+            No database is configured, so this workspace is held in memory and will be lost when the
+            server restarts.
           </div>
         )}
 
@@ -387,13 +547,13 @@ export default function Dashboard() {
             <p className="text-xs text-zinc-500 mb-4">
               Connect a GitHub repository to start tracking analytics.
             </p>
-            <a
+            <Link
               href="/projects"
               className="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-xs font-semibold transition"
             >
               <Zap size={12} />
               Connect Your First Project
-            </a>
+            </Link>
           </div>
         )}
 
@@ -435,14 +595,19 @@ export default function Dashboard() {
                     <div>
                       <h3 className="text-xl font-bold text-white tracking-tight">{metric.value}</h3>
                       <div className="flex items-center gap-1 mt-1">
-                        {metric.isPositive ? (
+                        {metric.direction === "up" && (
                           <TrendingUp size={12} className="text-emerald-400" />
-                        ) : (
+                        )}
+                        {metric.direction === "down" && (
                           <TrendingDown size={12} className="text-rose-400" />
                         )}
                         <span
                           className={`text-[10px] font-semibold ${
-                            metric.isPositive ? "text-emerald-400" : "text-rose-400"
+                            metric.direction === "up"
+                              ? "text-emerald-400"
+                              : metric.direction === "down"
+                              ? "text-rose-400"
+                              : "text-zinc-500"
                           }`}
                         >
                           {metric.change}
@@ -496,12 +661,12 @@ export default function Dashboard() {
                       </div>
                     ))}
                   </div>
-                  <a
+                  <Link
                     href="/instrumentation"
                     className="text-xs font-semibold text-cyan-400 hover:text-cyan-300 flex items-center gap-1 transition"
                   >
                     View Instrumentation <ArrowRight size={12} />
-                  </a>
+                  </Link>
                 </div>
               </div>
             )}
@@ -560,12 +725,12 @@ export default function Dashboard() {
                         instrumentation plan, then collect traffic — Aletsch will not show a placeholder
                         journey in the meantime.
                       </p>
-                      <a
+                      <Link
                         href="/instrumentation"
                         className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-400 hover:text-indigo-300 transition pt-1"
                       >
                         Go to instrumentation <ArrowRight size={12} />
-                      </a>
+                      </Link>
                     </div>
                   ) : (
                     <div className="relative py-8 flex items-center justify-between gap-2 overflow-x-auto min-w-[500px]">
@@ -588,7 +753,7 @@ export default function Dashboard() {
                           </defs>
                         </svg>
                       </div>
-                      {funnelSteps.map((step: any, idx: number) => (
+                      {funnelSteps.map((step, idx: number) => (
                         <div key={step.name} className="flex-1 flex flex-col items-center relative z-10">
                           <div className="relative">
                             <div className="w-12 h-12 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-center text-xs font-bold text-zinc-300 hover:border-indigo-500 hover:text-white transition cursor-pointer shadow-lg">
@@ -635,12 +800,12 @@ export default function Dashboard() {
                       </p>
                     </div>
                   </div>
-                  <a
+                  <Link
                     href="/funnel-analysis"
                     className="text-xs font-semibold text-indigo-400 hover:text-indigo-300 transition flex items-center gap-1 cursor-pointer"
                   >
                     View Funnel Analysis <ArrowRight size={12} />
-                  </a>
+                  </Link>
                 </div>
               </div>
 
@@ -649,47 +814,46 @@ export default function Dashboard() {
                 <div>
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-sm font-bold text-white">Top Tracked Events</h3>
-                    <a href="/events" className="text-xs text-indigo-400 font-semibold hover:text-indigo-300 transition">
+                    <Link
+                      href="/events"
+                      className="text-xs text-indigo-400 font-semibold hover:text-indigo-300 transition"
+                    >
                       View All
-                    </a>
+                    </Link>
                   </div>
-                  <div className="space-y-3">
-                    {(
-                      data?.topEvents && data.topEvents.length > 0
-                        ? data.topEvents.map((e: any) => ({
-                            name: e.name,
-                            count: e.count,
-                            cat: e.cat,
-                            color:
-                              e.cat === "Pageview"
-                                ? "bg-indigo-500/20 text-indigo-300"
-                                : e.cat === "Interaction"
-                                ? "bg-purple-500/20 text-purple-300"
-                                : e.cat === "System"
-                                ? "bg-cyan-500/20 text-cyan-300"
-                                : e.cat === "Form"
-                                ? "bg-emerald-500/20 text-emerald-300"
-                                : "bg-zinc-500/20 text-zinc-300",
-                          }))
-                        : [
-                            { name: "Page Viewed", count: "—", cat: "Pageview", color: "bg-indigo-500/20 text-indigo-300" },
-                            { name: "Button Clicked", count: "—", cat: "Interaction", color: "bg-purple-500/20 text-purple-300" },
-                            { name: "User Logged In", count: "—", cat: "System", color: "bg-cyan-500/20 text-cyan-300" },
-                            { name: "Form Submitted", count: "—", cat: "Form", color: "bg-emerald-500/20 text-emerald-300" },
-                          ]
-                    ).map((ev: any) => (
-                      <div
-                        key={ev.name}
-                        className="flex items-center justify-between py-1.5 border-b border-zinc-900 last:border-0"
-                      >
-                        <div className="flex items-center gap-2.5">
-                          <span className={`text-[9px] px-1.5 py-0.5 rounded font-mono ${ev.color}`}>{ev.cat}</span>
-                          <span className="text-xs font-medium text-zinc-300">{ev.name}</span>
+                  {/* Only events this workspace has actually recorded. This panel
+                      used to fall back to a catalogue of plausible-looking names
+                      — Page Viewed, Button Clicked, User Logged In — which read
+                      as real events with a dash for a count. */}
+                  {topEvents.length === 0 ? (
+                    <div className="py-8 text-center space-y-2">
+                      <Activity size={24} className="mx-auto text-purple-500/30" />
+                      <p className="text-xs font-semibold text-zinc-300">No events recorded yet</p>
+                      <p className="text-[11px] text-zinc-500 leading-relaxed">
+                        Event names appear here once your instrumented application sends its first
+                        events to the ingest endpoint.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {topEvents.map((ev) => (
+                        <div
+                          key={ev.name}
+                          className="flex items-center justify-between py-1.5 border-b border-zinc-900 last:border-0"
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <span className={`text-[9px] px-1.5 py-0.5 rounded font-mono shrink-0 ${ev.color}`}>
+                              {ev.cat}
+                            </span>
+                            <span className="text-xs font-medium text-zinc-300 truncate" title={ev.name}>
+                              {ev.name}
+                            </span>
+                          </div>
+                          <span className="text-xs font-bold text-zinc-100 shrink-0">{ev.count}</span>
                         </div>
-                        <span className="text-xs font-bold text-zinc-100">{ev.count}</span>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -803,111 +967,94 @@ export default function Dashboard() {
                     </div>
                   </div>
                 </div>
-                <a
+                <Link
                   href="/instrumentation"
                   className="w-full mt-4 bg-zinc-950/80 border border-zinc-800 hover:border-zinc-700 text-xs font-semibold py-2 rounded-lg text-zinc-300 transition text-center block"
                 >
                   View Instrumentation
-                </a>
+                </Link>
               </div>
 
               {/* Recent Activity */}
               <div className="glow-card rounded-xl p-6 glow-indigo flex flex-col">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-sm font-bold text-white">Recent Activity</h3>
-                  <span className="text-xs text-indigo-400 font-semibold hover:text-indigo-300 transition cursor-pointer">
+                  {/* This was a <span> styled as a link with no handler at all. */}
+                  <Link
+                    href="/events"
+                    className="text-xs text-indigo-400 font-semibold hover:text-indigo-300 transition"
+                  >
                     View All
-                  </span>
+                  </Link>
                 </div>
                 <div className="space-y-3">
-                  {(
-                    data?.recentActivity && data.recentActivity.length > 0
-                      ? data.recentActivity.map((r: any) => ({
-                          desc: r.desc,
-                          time: r.time,
-                          icon:
-                            r.type === "code"
-                              ? Code
-                              : r.type === "alert"
-                              ? AlertTriangle
-                              : r.type === "sync"
-                              ? CheckCircle2
-                              : Activity,
-                          color:
-                            r.type === "code"
-                              ? "text-cyan-400"
-                              : r.type === "alert"
-                              ? "text-rose-400"
-                              : r.type === "sync"
-                              ? "text-emerald-400"
-                              : "text-indigo-400",
-                        }))
-                      : [
-                          { desc: "No activity yet — connect a project", time: "", icon: Activity, color: "text-zinc-600" },
-                        ]
-                  ).map((act: any, i: number) => {
-                    const Icon = act.icon;
-                    return (
-                      <div key={i} className="flex gap-2.5 items-start">
-                        <Icon size={12} className={`mt-0.5 ${act.color}`} />
-                        <div className="flex-1 flex flex-col">
-                          <span className="text-[10px] text-zinc-300 leading-normal">{act.desc}</span>
-                          {act.time && (
-                            <span className="text-[9px] text-zinc-500 mt-0.5">{act.time}</span>
-                          )}
+                  {recentActivity.length === 0 ? (
+                    <div className="flex gap-2.5 items-start">
+                      <Activity size={12} className="mt-0.5 text-zinc-600" />
+                      <span className="text-[10px] text-zinc-500 leading-normal">
+                        No activity yet. Analysis runs and incoming events will appear here.
+                      </span>
+                    </div>
+                  ) : (
+                    recentActivity.map((act, i) => {
+                      const Icon = act.icon;
+                      return (
+                        <div key={i} className="flex gap-2.5 items-start">
+                          <Icon size={12} className={`mt-0.5 ${act.color}`} />
+                          <div className="flex-1 flex flex-col">
+                            <span className="text-[10px] text-zinc-300 leading-normal">{act.desc}</span>
+                            {act.time && (
+                              <span className="text-[9px] text-zinc-500 mt-0.5">{act.time}</span>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })
+                  )}
                 </div>
               </div>
 
-              {/* System Health */}
+              {/* System Health. Each row is a subsystem state backed by a count
+                  the API actually made, not a percentage. The header badge
+                  used to read "● All Systems OK" unconditionally — it said so
+                  even while every bar below it was empty. */}
               <div className="glow-card rounded-xl p-6 glow-emerald flex flex-col justify-between">
                 <div>
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-sm font-bold text-white">System Health</h3>
-                    <span className="flex items-center gap-1 text-[9px] text-emerald-400 font-bold bg-emerald-500/10 px-1.5 py-0.5 rounded">
-                      ● All Systems OK
+                    <span
+                      className={`flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                        healthSummary.tone === "ok"
+                          ? "text-emerald-400 bg-emerald-500/10"
+                          : healthSummary.tone === "degraded"
+                          ? "text-amber-400 bg-amber-500/10"
+                          : "text-zinc-400 bg-zinc-500/10"
+                      }`}
+                    >
+                      ● {healthSummary.label}
                     </span>
                   </div>
-                  <div className="space-y-2">
-                    {[
-                      { name: "Repository Connection", val: data?.systemHealth?.repoConnection ?? 0 },
-                      { name: "Event Processing", val: data?.systemHealth?.eventProcessing ?? 0 },
-                      { name: "AI Analysis Engine", val: data?.systemHealth?.aiAnalysis ?? 0 },
-                      { name: "Dashboard Service", val: data?.systemHealth?.dashboardService ?? 100 },
-                    ].map((sys) => (
-                      <div key={sys.name} className="space-y-1">
-                        <div className="flex justify-between text-[9px] text-zinc-400 font-semibold">
-                          <span>{sys.name}</span>
-                          <span>{sys.val}%</span>
+                  <div className="space-y-2.5">
+                    {healthRows.map((row) => {
+                      const tone = HEALTH_TONE[row.signal.state] ?? HEALTH_TONE.idle;
+                      return (
+                        <div key={row.name} className="space-y-0.5">
+                          <div className="flex items-center justify-between text-[10px] font-semibold">
+                            <span className="text-zinc-300">{row.name}</span>
+                            <span className={`flex items-center gap-1 ${tone.text}`}>
+                              <span className={`w-1.5 h-1.5 rounded-full ${tone.dot}`} />
+                              {row.signal.state === "ok"
+                                ? "Operational"
+                                : row.signal.state === "degraded"
+                                ? "Degraded"
+                                : "Idle"}
+                            </span>
+                          </div>
+                          <p className="text-[9px] text-zinc-500 leading-normal">{row.signal.detail}</p>
                         </div>
-                        <div className="h-1 bg-zinc-900 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full ${
-                              sys.val === 100
-                                ? "bg-emerald-500"
-                                : sys.val > 0
-                                ? "bg-cyan-500"
-                                : "bg-rose-500"
-                            }`}
-                            style={{ width: `${sys.val}%` }}
-                          />
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
-                </div>
-                <div className="h-6 mt-4 opacity-50">
-                  <svg className="w-full h-full" viewBox="0 0 100 20" preserveAspectRatio="none">
-                    <path
-                      d="M 0 10 L 20 8 L 40 12 L 60 7 L 80 15 L 100 3"
-                      fill="none"
-                      stroke="#10b981"
-                      strokeWidth="1.5"
-                    />
-                  </svg>
                 </div>
               </div>
             </div>

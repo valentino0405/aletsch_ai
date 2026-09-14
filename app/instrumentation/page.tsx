@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import Link from "next/link";
 import DashboardLayout from "@/components/navigation/DashboardLayout";
 import {
   Cpu,
   CheckCircle2,
   ChevronRight,
-  Terminal,
   Sparkles,
   FileCode,
   Play,
@@ -15,16 +15,11 @@ import {
   RefreshCw,
   X,
   Search,
-  Filter,
   GitBranch,
-  Zap,
-  MousePointer,
-  FormInput,
-  Navigation,
-  ToggleLeft,
   Clock,
   ChevronDown,
   ExternalLink,
+  XCircle,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────
@@ -244,12 +239,23 @@ export default function Instrumentation() {
   } | null>(null);
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
   const [terminalLines, setTerminalLines] = useState<string[]>(["$ aletsch analyze ./src"]);
-  const [pollTimer, setPollTimer] = useState<ReturnType<typeof setInterval> | null>(null);
+  const [loadError, setLoadError] = useState("");
+  // One interval, held in a ref. Two useState timers used to run at once —
+  // one from the polling effect and one started by the Run button — and the
+  // second was never cleared, so it kept hitting the API after the job ended.
+  const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopPolling = useCallback(() => {
+    if (pollTimer.current) {
+      clearInterval(pollTimer.current);
+      pollTimer.current = null;
+    }
+  }, []);
 
   // Load projects
   useEffect(() => {
     fetch("/api/projects")
-      .then((r) => r.ok ? r.json() : [])
+      .then((r) => (r.ok ? r.json() : []))
       .then((data: any[]) => {
         if (Array.isArray(data)) {
           const normalized = data.map((p) => ({
@@ -259,12 +265,12 @@ export default function Instrumentation() {
             status: p.status || "Connected",
           }));
           setProjects(normalized);
-          if (normalized.length > 0 && !selectedProjectId) {
-            setSelectedProjectId(normalized[0].id);
+          if (normalized.length > 0) {
+            setSelectedProjectId((current) => current || normalized[0].id);
           }
         }
       })
-      .catch(() => {});
+      .catch(() => setLoadError("Projects could not be loaded."));
   }, []);
 
   // Fetch instrumentation data
@@ -278,7 +284,12 @@ export default function Instrumentation() {
 
     try {
       const res = await fetch(`/api/instrumentation?${params.toString()}`);
-      if (!res.ok) return;
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setLoadError(data.error || "Instrumentation data could not be loaded.");
+        return;
+      }
+      setLoadError("");
       const data = await res.json();
 
       setAnalysis(data.analysis || null);
@@ -322,7 +333,7 @@ export default function Instrumentation() {
         ]);
       }
     } catch {
-      /* ignore */
+      setLoadError("Network error while loading instrumentation data.");
     }
   }, [selectedProjectId, activeFilter, searchQuery]);
 
@@ -330,44 +341,39 @@ export default function Instrumentation() {
     if (selectedProjectId) {
       fetchData(selectedProjectId);
     }
-  }, [selectedProjectId, activeFilter, searchQuery]);
+  }, [selectedProjectId, activeFilter, searchQuery, fetchData]);
 
-  // Poll while analyzing
+  // A single polling loop, started when a job is in flight and torn down
+  // when it is not — including on unmount.
   useEffect(() => {
-    if (isAnalyzing) {
-      const timer = setInterval(() => {
-        fetchData().then(() => {
-          // Stop polling if done
-          if (job && !["queued", "running"].includes(job.status)) {
-            setIsAnalyzing(false);
-          }
-        });
-      }, 2500);
-      setPollTimer(timer);
-      return () => clearInterval(timer);
-    } else {
-      if (pollTimer) clearInterval(pollTimer);
+    if (!isAnalyzing) {
+      stopPolling();
+      return;
     }
-  }, [isAnalyzing]);
+    pollTimer.current = setInterval(() => {
+      fetchData();
+    }, 2500);
+    return stopPolling;
+  }, [isAnalyzing, fetchData, stopPolling]);
 
-  // Stop polling when job completes
+  // Stop polling when the job reaches a terminal state.
   useEffect(() => {
     if (job && !["queued", "running"].includes(job.status) && isAnalyzing) {
       setIsAnalyzing(false);
-      fetchData();
     }
-  }, [job?.status]);
+  }, [job, isAnalyzing]);
 
   const handleRunAnalysis = async () => {
     if (!selectedProjectId || isAnalyzing) return;
     setIsAnalyzing(true);
+    setLoadError("");
     setTerminalLines(["$ aletsch analyze ./src", "> Starting AST analysis..."]);
 
     try {
       const res = await fetch(`/api/repositories/${selectedProjectId}/analyze`, {
         method: "POST",
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setTerminalLines(["$ aletsch analyze ./src", `> Error: ${data.error || "Analysis failed"}`]);
         setIsAnalyzing(false);
@@ -378,11 +384,7 @@ export default function Instrumentation() {
         "> Analysis queued successfully...",
         `> Job ID: ${data.jobId}`,
       ]);
-      // Start polling
-      const timer = setInterval(async () => {
-        await fetchData();
-      }, 2500);
-      setPollTimer(timer);
+      // The polling effect owns the interval; setting isAnalyzing starts it.
     } catch (err: any) {
       setTerminalLines(["$ aletsch analyze ./src", `> Network error: ${err?.message}`]);
       setIsAnalyzing(false);
@@ -430,6 +432,13 @@ export default function Instrumentation() {
           )}
         </div>
 
+        {loadError && (
+          <div className="flex items-center gap-2 rounded-lg border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-xs text-rose-300">
+            <XCircle size={13} className="shrink-0" />
+            {loadError}
+          </div>
+        )}
+
         {/* No project state */}
         {projects.length === 0 && (
           <div className="glow-card rounded-xl p-8 text-center">
@@ -437,9 +446,9 @@ export default function Instrumentation() {
             <h3 className="text-sm font-bold text-white mb-2">No Projects Connected</h3>
             <p className="text-xs text-zinc-500">
               Connect a GitHub repository first from the{" "}
-              <a href="/repositories" className="text-indigo-400 hover:underline">
+              <Link href="/repositories" className="text-indigo-400 hover:underline">
                 Repositories
-              </a>{" "}
+              </Link>{" "}
               page.
             </p>
           </div>

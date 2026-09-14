@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import Link from "next/link";
 import DashboardLayout from "@/components/navigation/DashboardLayout";
 import { AlertTriangle, ArrowRight, TrendingUp, Database, RefreshCw } from "lucide-react";
 
@@ -204,13 +205,13 @@ export default function FunnelAnalysis() {
               )}
             </p>
             {hasFunnel && (
-              <a
+              <Link
                 href="/insights"
                 className="flex items-center gap-2 text-xs font-semibold text-indigo-400 hover:text-indigo-300 transition w-fit"
               >
                 <span>View AI insights for this funnel</span>
                 <ArrowRight size={14} />
-              </a>
+              </Link>
             )}
           </div>
 

@@ -1,102 +1,135 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "@/components/navigation/DashboardLayout";
-import { FolderKanban, Terminal, Sparkles, Plus, CheckCircle2, RefreshCw, Loader2 } from "lucide-react";
+import RepoPicker, { type PickedRepo } from "@/components/repositories/RepoPicker";
+import {
+  Terminal,
+  Sparkles,
+  Plus,
+  RefreshCw,
+  Loader2,
+  X,
+  Lock,
+  Globe,
+  XCircle,
+} from "lucide-react";
+
+interface Project {
+  id: string;
+  name: string;
+  language: string;
+  repositoryUrl: string;
+  repositoryLabel: string;
+  branch: string;
+  isPrivate: boolean;
+  status: string;
+  updatedAt: string | null;
+  eventCount: number;
+  userCount: number;
+}
+
+function statusStyle(status: string): string {
+  const value = status.toLowerCase();
+  if (value === "ready" || value === "synced" || value === "connected") {
+    return "text-emerald-400 bg-emerald-500/10";
+  }
+  if (value === "analyzing" || value === "syncing" || value === "queued") {
+    return "text-indigo-300 bg-indigo-500/10";
+  }
+  if (value === "error" || value === "failed") return "text-rose-300 bg-rose-500/10";
+  return "text-zinc-400 bg-zinc-800/60";
+}
+
+function relativeTime(iso: string | null): string {
+  if (!iso) return "Not yet analyzed";
+  const then = new Date(iso).getTime();
+  if (!Number.isFinite(then)) return "Not yet analyzed";
+  const minutes = Math.floor((Date.now() - then) / 60000);
+  if (minutes < 1) return "Just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+/** Strips the scheme for display without assuming one is present. */
+function repositoryLabel(url: unknown): string {
+  if (typeof url !== "string" || !url) return "No repository linked";
+  return url.replace(/^https?:\/\//, "");
+}
 
 export default function Projects() {
   const router = useRouter();
-  const [projects, setProjects] = useState<any[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [name, setName] = useState("");
-  const [repoUrl, setRepoUrl] = useState("");
-  const [branch, setBranch] = useState("main");
-  const [loading, setLoading] = useState(false);
   const [syncingId, setSyncingId] = useState<string | null>(null);
-  const [actionError, setActionError] = useState("");
+  const [error, setError] = useState("");
+
+  const loadProjects = useCallback(async () => {
+    try {
+      const response = await fetch("/api/projects");
+      const data = await response.json().catch(() => []);
+      if (!response.ok) {
+        setError(data.error || "Projects could not be loaded.");
+        return;
+      }
+      setError("");
+      setProjects(
+        (Array.isArray(data) ? data : []).map((project: any) => ({
+          id: project._id || project.id,
+          name: project.name || "Unnamed project",
+          // Language comes from GitHub at connect time. When it is
+          // missing the project simply has not been analyzed yet.
+          language: project.language || "Unknown",
+          repositoryUrl: project.repositoryUrl || "",
+          repositoryLabel: repositoryLabel(project.repositoryUrl),
+          branch: project.branch || "main",
+          isPrivate: Boolean(project.isPrivate),
+          status: project.status || "Unknown",
+          updatedAt: project.lastAnalyzedAt || project.updatedAt || null,
+          eventCount: typeof project.eventCount === "number" ? project.eventCount : 0,
+          userCount: typeof project.userCount === "number" ? project.userCount : 0,
+        }))
+      );
+    } catch {
+      setError("Network error while loading projects.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadProjects();
+  }, [loadProjects]);
+
+  const handleConnected = (repo: PickedRepo) => {
+    setShowAddModal(false);
+    loadProjects();
+    router.push(`/projects/${repo.projectId}/analytics`);
+  };
 
   const handleSync = async (projectId: string) => {
     setSyncingId(projectId);
-    setActionError("");
+    setError("");
     try {
       const response = await fetch(`/api/repositories/${projectId}/sync`, { method: "POST" });
+      const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.error || "Project sync failed.");
+        throw new Error(data.error || "The project could not be synced.");
       }
-      setProjects(prev => prev.map(p => p.id === projectId ? { ...p, status: "Ready" } : p));
+      setProjects((current) =>
+        current.map((project) =>
+          project.id === projectId ? { ...project, status: data.status || "Analyzing" } : project
+        )
+      );
     } catch (err: any) {
-      setActionError(err.message || "Project sync failed.");
+      setError(err.message || "The project could not be synced.");
     } finally {
       setSyncingId(null);
-    }
-  };
-
-  useEffect(() => {
-    async function loadProjects() {
-      try {
-        const res = await fetch("/api/projects");
-        if (res.ok) {
-          const json = await res.json();
-          // Normalize structure from MongoDB schema (mapping _id/id, stats, etc.)
-          const normalized = json.map((p: any) => ({
-            id: p._id || p.id || String(Math.random()),
-            name: p.name,
-            framework: p.framework || "Next.js",
-            repositoryUrl: p.repositoryUrl.replace("https://", ""),
-            status: p.status || "Connected",
-            lastAnalyzed: p.lastAnalyzedAt ? new Date(p.lastAnalyzedAt).toLocaleDateString() : "Just Now",
-            events: p.events || "0",
-            users: p.users || "0",
-          }));
-          setProjects(normalized);
-        }
-      } catch (err) {
-        console.error("Error loading projects:", err);
-      }
-    }
-    loadProjects();
-  }, []);
-
-  const handleAddProject = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setActionError("");
-
-    // Call local route handler
-    try {
-      const res = await fetch("/api/projects", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, repositoryUrl: repoUrl, branch }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setProjects([
-          ...projects,
-          {
-            id: data.id || Math.random().toString(),
-            name,
-            framework: "Next.js",
-            repositoryUrl: repoUrl.replace("https://", ""),
-            status: "Connected",
-            lastAnalyzed: "Just Now",
-            events: "0",
-            users: "0",
-          },
-        ]);
-        setName("");
-        setRepoUrl("");
-        setBranch("main");
-        setShowAddModal(false);
-      } else {
-        setActionError(data.error || "Failed to add project.");
-      }
-    } catch (err: any) {
-      setActionError(err.message || "Network error. Make sure the server is available.");
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -107,7 +140,11 @@ export default function Projects() {
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-white">Projects</h1>
             <p className="text-sm text-zinc-400">
-              Manage and connect the applications you want Aletsch AI to automatically instrument.
+              Every project is a connected GitHub repository. Manage the GitHub side on the{" "}
+              <Link href="/repositories" className="text-indigo-400 hover:text-indigo-300 transition">
+                Repositories
+              </Link>{" "}
+              page.
             </p>
           </div>
           <button
@@ -115,156 +152,138 @@ export default function Projects() {
             className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg px-4 py-2 text-xs font-semibold shadow-md shadow-indigo-600/10 transition cursor-pointer"
           >
             <Plus size={16} />
-            <span>Add Project</span>
+            <span>Connect repository</span>
           </button>
         </div>
 
-        {actionError && (
-          <div className="rounded-lg border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-xs text-rose-300">
-            {actionError}
+        {error && (
+          <div className="flex items-center gap-2 rounded-lg border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-xs text-rose-300">
+            <XCircle size={13} className="shrink-0" />
+            {error}
           </div>
         )}
 
-        {/* Project Cards Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {projects.map((project) => (
-            <div
-              key={project.id}
-              className="glow-card rounded-xl p-6 glow-indigo relative overflow-hidden flex flex-col justify-between"
+        {loading ? (
+          <div className="flex items-center gap-2 text-xs text-zinc-500 py-8">
+            <Loader2 size={14} className="animate-spin" /> Loading projects...
+          </div>
+        ) : projects.length === 0 ? (
+          <div className="glow-card rounded-xl p-10 text-center">
+            <p className="text-sm text-zinc-400">No projects yet.</p>
+            <p className="text-xs text-zinc-500 mt-1">
+              Connect a GitHub repository and Aletsch will map its components and propose an event plan.
+            </p>
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="mt-4 inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg px-4 py-2 text-xs font-semibold transition cursor-pointer"
             >
-              <div>
-                <div className="flex items-center justify-between mb-4">
-                  <span className="text-[10px] bg-zinc-800 text-zinc-300 font-mono px-2 py-0.5 rounded">
-                    {project.framework}
-                  </span>
-                  <span className="flex items-center gap-1 text-[10px] text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full font-medium">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse-glow" />
-                    {project.status}
-                  </span>
-                </div>
-                <h3 className="text-lg font-bold text-white mb-1">{project.name}</h3>
-                <p className="text-xs text-zinc-400 font-mono flex items-center gap-1 mb-6">
-                  <Terminal size={12} className="text-zinc-500" />
-                  {project.repositoryUrl}
-                </p>
+              <Plus size={14} /> Connect repository
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {projects.map((project) => (
+              <div
+                key={project.id}
+                className="glow-card rounded-xl p-6 glow-indigo relative overflow-hidden flex flex-col justify-between"
+              >
+                <div>
+                  <div className="flex items-center justify-between mb-4 gap-2">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="text-[10px] bg-zinc-800 text-zinc-300 font-mono px-2 py-0.5 rounded shrink-0">
+                        {project.language}
+                      </span>
+                      <span
+                        className={`flex items-center gap-1 text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full shrink-0 ${
+                          project.isPrivate
+                            ? "text-amber-300 bg-amber-500/10 border border-amber-500/20"
+                            : "text-zinc-400 bg-zinc-800/60 border border-zinc-800"
+                        }`}
+                      >
+                        {project.isPrivate ? <Lock size={8} /> : <Globe size={8} />}
+                        {project.isPrivate ? "Private" : "Public"}
+                      </span>
+                    </div>
+                    <span
+                      className={`text-[10px] px-2 py-0.5 rounded-full font-medium shrink-0 ${statusStyle(
+                        project.status
+                      )}`}
+                    >
+                      {project.status}
+                    </span>
+                  </div>
 
-                <div className="grid grid-cols-3 gap-4 border-t border-zinc-900 pt-4">
-                  <div>
-                    <span className="text-[10px] text-zinc-500 uppercase font-bold block">
-                      Users
-                    </span>
-                    <span className="text-sm font-semibold text-white mt-1 block">
-                      {project.users}
-                    </span>
+                  <h3 className="text-lg font-bold text-white mb-1 truncate">{project.name}</h3>
+                  <p className="text-xs text-zinc-400 font-mono flex items-center gap-1 mb-1">
+                    <Terminal size={12} className="text-zinc-500 shrink-0" />
+                    <span className="truncate">{project.repositoryLabel}</span>
+                  </p>
+                  <p className="text-[10px] text-zinc-600 font-mono mb-6">branch: {project.branch}</p>
+
+                  <div className="grid grid-cols-3 gap-4 border-t border-zinc-900 pt-4">
+                    <div>
+                      <span className="text-[10px] text-zinc-500 uppercase font-bold block">Users</span>
+                      <span className="text-sm font-semibold text-white mt-1 block">
+                        {project.userCount.toLocaleString()}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-zinc-500 uppercase font-bold block">Events</span>
+                      <span className="text-sm font-semibold text-white mt-1 block">
+                        {project.eventCount.toLocaleString()}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-zinc-500 uppercase font-bold block">Updated</span>
+                      <span className="text-xs font-semibold text-zinc-300 mt-1.5 block">
+                        {relativeTime(project.updatedAt)}
+                      </span>
+                    </div>
                   </div>
-                  <div>
-                    <span className="text-[10px] text-zinc-500 uppercase font-bold block">
-                      Events
-                    </span>
-                    <span className="text-sm font-semibold text-white mt-1 block">
-                      {project.events}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-zinc-500 uppercase font-bold block">
-                      Analyzed
-                    </span>
-                    <span className="text-xs font-semibold text-zinc-300 mt-1.5 block">
-                      {project.lastAnalyzed}
-                    </span>
-                  </div>
+                </div>
+
+                <div className="flex justify-end gap-3 mt-6">
+                  <button
+                    onClick={() => handleSync(project.id)}
+                    disabled={syncingId === project.id}
+                    className="flex items-center gap-1 text-xs font-semibold text-zinc-400 hover:text-white transition cursor-pointer disabled:opacity-50"
+                  >
+                    {syncingId === project.id ? (
+                      <Loader2 size={12} className="animate-spin" />
+                    ) : (
+                      <RefreshCw size={12} />
+                    )}
+                    {syncingId === project.id ? "Syncing..." : "Sync"}
+                  </button>
+                  <Link
+                    href={`/projects/${project.id}/analytics`}
+                    className="text-xs font-semibold text-indigo-400 hover:text-indigo-300 transition flex items-center gap-1"
+                  >
+                    View analytics <Sparkles size={12} className="text-indigo-300" />
+                  </Link>
                 </div>
               </div>
+            ))}
+          </div>
+        )}
 
-              <div className="flex justify-end gap-3 mt-6">
-                <button
-                  onClick={() => handleSync(project.id)}
-                  disabled={syncingId === project.id}
-                  className="flex items-center gap-1 text-xs font-semibold text-zinc-400 hover:text-white transition cursor-pointer disabled:opacity-50"
-                >
-                  {syncingId === project.id ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
-                  {syncingId === project.id ? "Syncing..." : "Sync"}
-                </button>
-                <button
-                  onClick={() => router.push(`/projects/${project.id}/analytics`)}
-                  className="text-xs font-semibold text-indigo-400 hover:text-indigo-300 transition flex items-center gap-1 cursor-pointer"
-                >
-                  View Analytics <Sparkles size={12} className="text-indigo-300" />
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Add Project Modal */}
+        {/* Connect modal — the same picker the Repositories page uses. */}
         {showAddModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-            <div className="max-w-md w-full p-6 rounded-2xl border border-zinc-800 bg-[#09090f] shadow-2xl relative overflow-hidden">
-              <h2 className="text-lg font-bold text-white mb-2">Connect New Project</h2>
-              <p className="text-xs text-zinc-400 mb-4">
-                Input your repository configuration. Aletsch AI will sync with your MongoDB settings.
+          <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 sm:p-8 bg-black/60 backdrop-blur-sm">
+            <div className="max-w-2xl w-full p-6 rounded-2xl border border-zinc-800 bg-[#09090f] shadow-2xl relative my-auto">
+              <button
+                onClick={() => setShowAddModal(false)}
+                className="absolute top-4 right-4 text-zinc-500 hover:text-white transition cursor-pointer"
+                aria-label="Close"
+              >
+                <X size={16} />
+              </button>
+              <h2 className="text-lg font-bold text-white mb-1">Connect a repository</h2>
+              <p className="text-xs text-zinc-400 mb-5">
+                Pick one of your GitHub repositories, or paste a URL. Aletsch indexes its source and starts an
+                analysis straight away.
               </p>
-
-              <form onSubmit={handleAddProject} className="space-y-4">
-                <div>
-                  <label className="text-[10px] uppercase font-bold text-zinc-400 block mb-1">
-                    Project Name
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="e.g. TaskFlow Pro"
-                    className="w-full bg-zinc-900 border border-zinc-800 focus:border-indigo-500 rounded-lg px-3.5 py-2 text-xs text-zinc-200 placeholder-zinc-600 outline-none transition"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-[10px] uppercase font-bold text-zinc-400 block mb-1">
-                    GitHub URL
-                  </label>
-                  <input
-                    type="url"
-                    required
-                    value={repoUrl}
-                    onChange={(e) => setRepoUrl(e.target.value)}
-                    placeholder="e.g. https://github.com/username/repo"
-                    className="w-full bg-zinc-900 border border-zinc-800 focus:border-indigo-500 rounded-lg px-3.5 py-2 text-xs text-zinc-200 placeholder-zinc-600 outline-none transition"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-[10px] uppercase font-bold text-zinc-400 block mb-1">
-                    Branch Name
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={branch}
-                    onChange={(e) => setBranch(e.target.value)}
-                    placeholder="e.g. main"
-                    className="w-full bg-zinc-900 border border-zinc-800 focus:border-indigo-500 rounded-lg px-3.5 py-2 text-xs text-zinc-200 placeholder-zinc-600 outline-none transition"
-                  />
-                </div>
-
-                <div className="flex justify-end gap-3 pt-4 border-t border-zinc-900">
-                  <button
-                    type="button"
-                    onClick={() => setShowAddModal(false)}
-                    className="px-4 py-2 text-xs font-semibold text-zinc-400 hover:text-white transition cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-700 text-white text-xs font-semibold rounded-lg shadow-md transition cursor-pointer"
-                  >
-                    {loading ? "Connecting..." : "Add Project"}
-                  </button>
-                </div>
-              </form>
+              <RepoPicker onConnected={handleConnected} returnTo="/projects" />
             </div>
           </div>
         )}

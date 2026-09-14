@@ -1,24 +1,40 @@
 "use client";
 
 import { useState, useEffect, use, useRef } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "@/components/navigation/DashboardLayout";
 import {
   ArrowLeft, Sparkles, BrainCircuit, BarChart3, MousePointerClick,
-  FileCode2, Users, Zap, TrendingUp, CheckCircle2, Loader2, RefreshCw, AlertTriangle
+  FileCode2, Zap, CheckCircle2, Loader2, RefreshCw, AlertTriangle, XCircle
 } from "lucide-react";
+
+/** Matches the tone used on the Projects and Repositories pages. */
+function statusStyle(status: string): string {
+  const value = (status || "").toLowerCase();
+  if (value === "ready" || value === "synced" || value === "connected") {
+    return "text-emerald-400 bg-emerald-500/10 border-emerald-500/20";
+  }
+  if (value === "analyzing" || value === "syncing" || value === "queued" || value === "running") {
+    return "text-indigo-300 bg-indigo-500/10 border-indigo-500/20";
+  }
+  if (value === "error" || value === "failed") return "text-rose-300 bg-rose-500/10 border-rose-500/20";
+  return "text-zinc-400 bg-zinc-800/60 border-zinc-800";
+}
 
 export default function ProjectAnalyticsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: projectId } = use(params);
   const router = useRouter();
 
   const [project, setProject] = useState<any>(null);
+  const [notFound, setNotFound] = useState(false);
   const [components, setComponents] = useState<any[]>([]);
   const [insights, setInsights] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [analysisStatus, setAnalysisStatus] = useState<string>("idle");
   const [generatingInsights, setGeneratingInsights] = useState(false);
+  const [error, setError] = useState("");
   const loadingRequest = useRef(false);
 
   async function loadAnalytics() {
@@ -34,19 +50,29 @@ export default function ProjectAnalyticsPage({ params }: { params: Promise<{ id:
 
       if (pRes.ok) {
         const projects = await pRes.json();
-        setProject(projects.find((p: any) => (p._id || p.id) === projectId) || null);
+        const match = Array.isArray(projects)
+          ? projects.find((p: any) => (p._id || p.id) === projectId)
+          : null;
+        setProject(match || null);
+        // An id that matches nothing this user owns is a dead page, not a
+        // project still loading. Say so instead of spinning forever.
+        setNotFound(!match);
       }
       if (cRes.ok) {
         const compData = await cRes.json();
         setComponents(Array.isArray(compData) ? compData : compData.components || []);
       }
-      if (iRes.ok) setInsights(await iRes.json());
+      if (iRes.ok) {
+        const insightData = await iRes.json();
+        setInsights(Array.isArray(insightData) ? insightData : []);
+      }
       if (sRes.ok) {
         const status = await sRes.json();
         setAnalysisStatus(status.status || "idle");
       }
     } catch (err) {
       console.error("Failed to load project analytics:", err);
+      setError("Analytics data could not be loaded.");
     } finally {
       loadingRequest.current = false;
     }
@@ -80,10 +106,19 @@ export default function ProjectAnalyticsPage({ params }: { params: Promise<{ id:
 
   const handleSync = async () => {
     setSyncing(true);
+    setError("");
     try {
-      await fetch(`/api/repositories/${projectId}/sync`, { method: "POST" });
+      const res = await fetch(`/api/repositories/${projectId}/sync`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        // A failed sync used to look identical to a successful one.
+        setError(data.error || "The repository could not be re-analyzed.");
+        return;
+      }
       setAnalysisStatus("queued");
       await loadAnalytics();
+    } catch {
+      setError("Network error while starting the analysis.");
     } finally {
       setSyncing(false);
     }
@@ -91,18 +126,25 @@ export default function ProjectAnalyticsPage({ params }: { params: Promise<{ id:
 
   const handleRegenerateInsights = async () => {
     setGeneratingInsights(true);
+    setError("");
     try {
       const res = await fetch("/api/insights", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ projectId }),
       });
-      if (res.ok) {
-        const iRes = await fetch(`/api/insights?projectId=${projectId}`);
-        if (iRes.ok) setInsights(await iRes.json());
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || "Insights could not be generated.");
+        return;
       }
-    } catch (err) {
-      console.error("Failed to regenerate insights:", err);
+      const iRes = await fetch(`/api/insights?projectId=${projectId}`);
+      if (iRes.ok) {
+        const insightData = await iRes.json();
+        setInsights(Array.isArray(insightData) ? insightData : []);
+      }
+    } catch {
+      setError("Network error while generating insights.");
     } finally {
       setGeneratingInsights(false);
     }
@@ -141,17 +183,38 @@ export default function ProjectAnalyticsPage({ params }: { params: Promise<{ id:
             </p>
           </div>
           <div className="ml-auto">
-            <span className={`text-[10px] px-2.5 py-1 rounded-full font-bold border ${
-              project?.status === "Ready"
-                ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
-                : "text-amber-400 bg-amber-500/10 border-amber-500/20"
-            }`}>
-              {project?.status || "Loading"}
+            <span
+              className={`text-[10px] px-2.5 py-1 rounded-full font-bold border ${statusStyle(
+                project?.status || ""
+              )}`}
+            >
+              {project?.status || (loading ? "Loading" : "Unknown")}
             </span>
           </div>
         </div>
 
-        {loading ? (
+        {error && (
+          <div className="flex items-center gap-2 rounded-lg border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-xs text-rose-300">
+            <XCircle size={13} className="shrink-0" />
+            {error}
+          </div>
+        )}
+
+        {!loading && notFound ? (
+          <div className="glow-card rounded-xl p-10 text-center">
+            <AlertTriangle size={26} className="mx-auto mb-3 text-amber-500/60" />
+            <p className="text-sm font-bold text-zinc-300">This project was not found.</p>
+            <p className="text-xs text-zinc-500 mt-1">
+              It may have been removed, or it belongs to another account.
+            </p>
+            <Link
+              href="/projects"
+              className="mt-4 inline-block text-xs font-semibold text-indigo-400 hover:text-indigo-300 transition"
+            >
+              Back to projects
+            </Link>
+          </div>
+        ) : loading ? (
           <div className="flex items-center gap-3 text-zinc-400 py-12 justify-center">
             <Loader2 size={18} className="animate-spin" />
             <span className="text-sm">Loading analytics data...</span>

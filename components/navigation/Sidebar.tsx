@@ -53,6 +53,19 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
       .catch(() => setActiveProject(null));
   }, [pathname]);
 
+  // The badge reflects the project's real status. A fixed green "Live"
+  // would claim a repository is being tracked when it may have failed
+  // to analyze or never been connected at all.
+  const status: string = activeProject?.status || "";
+  const statusTone =
+    /^(ready|synced|connected)$/i.test(status)
+      ? "text-emerald-400 bg-emerald-500/10"
+      : /^(analyzing|syncing|queued)$/i.test(status)
+      ? "text-indigo-300 bg-indigo-500/10"
+      : /^(error|failed)$/i.test(status)
+      ? "text-rose-300 bg-rose-500/10"
+      : "text-zinc-400 bg-zinc-800/60";
+
   return (
     <aside
       className={`fixed top-0 left-0 z-40 h-screen transition-all duration-300 border-r border-zinc-800/60 bg-[#06060c] flex flex-col justify-between ${
@@ -129,26 +142,38 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
               <span className="text-[10px] text-zinc-500 font-semibold uppercase">
                 Active Project
               </span>
-              <span className="flex items-center gap-1.5 text-[10px] text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded-full font-medium">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse-glow" />
-                Live
-              </span>
+              {activeProject && (
+                <span className={`flex items-center gap-1.5 text-[10px] px-1.5 py-0.5 rounded-full font-medium ${statusTone}`}>
+                  <span className="w-1.5 h-1.5 rounded-full bg-current" />
+                  {status || "Unknown"}
+                </span>
+              )}
             </div>
-            <h4 className="text-xs font-bold text-white mb-0.5">{activeProject?.name || "No project connected"}</h4>
+            <h4 className="text-xs font-bold text-white mb-0.5 truncate">{activeProject?.name || "No project connected"}</h4>
             <div className="text-[10px] text-zinc-400 font-mono truncate flex items-center gap-1">
-              <Terminal size={10} className="text-zinc-500" /> {activeProject?.repositoryUrl || "Connect a repository"}
+              <Terminal size={10} className="text-zinc-500 shrink-0" /> {activeProject?.repositoryUrl || "Connect a repository"}
             </div>
             <div className="text-[10px] text-zinc-500 mt-1 flex items-center gap-2">
               <span>Branch: <span className="text-zinc-400 font-mono">{activeProject?.branch || "-"}</span></span>
             </div>
-            <a
-              href={activeProject?.repositoryUrl || "/repositories"}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-2 text-[10px] text-indigo-400 flex items-center gap-1 hover:text-indigo-300 font-medium transition"
-            >
-              {activeProject ? "View Repository" : "Connect Repository"} <ExternalLink size={10} />
-            </a>
+            {activeProject?.repositoryUrl ? (
+              <a
+                href={activeProject.repositoryUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-2 text-[10px] text-indigo-400 flex items-center gap-1 hover:text-indigo-300 font-medium transition"
+              >
+                View Repository <ExternalLink size={10} />
+              </a>
+            ) : (
+              // An in-app route, so it must not open in a new tab.
+              <Link
+                href="/repositories"
+                className="mt-2 text-[10px] text-indigo-400 flex items-center gap-1 hover:text-indigo-300 font-medium transition"
+              >
+                Connect Repository <ChevronRight size={10} />
+              </Link>
+            )}
           </div>
         )}
 
