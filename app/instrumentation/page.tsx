@@ -230,6 +230,14 @@ export default function Instrumentation() {
   const [grouped, setGrouped] = useState<FileGroup[]>([]);
   const [totalInteractions, setTotalInteractions] = useState(0);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isApplying, setIsApplying] = useState(false);
+  const [applyResult, setApplyResult] = useState<{
+    branch: string;
+    baseBranch: string;
+    pullRequestUrl: string;
+    pullRequestNumber: number;
+    message: string;
+  } | null>(null);
   const [activeFilter, setActiveFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedInteraction, setSelectedInteraction] = useState<{
@@ -388,6 +396,58 @@ export default function Instrumentation() {
     } catch (err: any) {
       setTerminalLines(["$ aletsch analyze ./src", `> Network error: ${err?.message}`]);
       setIsAnalyzing(false);
+    }
+  };
+
+  // Applying opens a pull request against the tracked branch. The result
+  // is kept in state so the PR link survives the next data refresh.
+  const handleApply = async () => {
+    if (!selectedProjectId || isApplying || isAnalyzing) return;
+    setIsApplying(true);
+    setLoadError("");
+    setTerminalLines(["$ aletsch apply", "> Rebuilding the change set from the repository..."]);
+
+    try {
+      const res = await fetch("/api/instrumentation/apply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: selectedProjectId }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        setTerminalLines([
+          "$ aletsch apply",
+          `> Error: ${data.error || "The instrumentation could not be applied."}`,
+        ]);
+        setIsApplying(false);
+        return;
+      }
+
+      if (!data.applied) {
+        setTerminalLines(["$ aletsch apply", `> ${data.message || "Nothing to apply."}`]);
+        setIsApplying(false);
+        return;
+      }
+
+      setApplyResult({
+        branch: data.branch,
+        baseBranch: data.baseBranch,
+        pullRequestUrl: data.pullRequest?.url || "",
+        pullRequestNumber: data.pullRequest?.number ?? 0,
+        message: data.message || "",
+      });
+      setTerminalLines([
+        "$ aletsch apply",
+        `> Branch created: ${data.branch}`,
+        `> ${data.message}`,
+        `> Pull request #${data.pullRequest?.number} opened against ${data.baseBranch}.`,
+      ]);
+      fetchData();
+    } catch (err: unknown) {
+      setTerminalLines(["$ aletsch apply", `> Network error: ${(err as Error)?.message}`]);
+    } finally {
+      setIsApplying(false);
     }
   };
 
@@ -796,6 +856,48 @@ export default function Instrumentation() {
                       </>
                     )}
                   </button>
+
+                  {/* Applying is only meaningful once interactions exist to
+                      instrument, so the button stays out of the way until
+                      an analysis has actually found some. */}
+                  {totalInteractions > 0 && (
+                    <button
+                      onClick={handleApply}
+                      disabled={isApplying || isAnalyzing || !selectedProjectId}
+                      className="w-full flex items-center justify-center gap-1.5 bg-emerald-600/10 hover:bg-emerald-600/20 disabled:opacity-50 disabled:cursor-not-allowed text-emerald-400 border border-emerald-500/20 rounded-lg py-2.5 text-xs font-semibold transition cursor-pointer"
+                    >
+                      {isApplying ? (
+                        <>
+                          <Loader2 size={12} className="animate-spin" />
+                          <span>Opening pull request...</span>
+                        </>
+                      ) : (
+                        <>
+                          <GitBranch size={12} />
+                          <span>Apply &amp; Open Pull Request</span>
+                        </>
+                      )}
+                    </button>
+                  )}
+
+                  {applyResult && (
+                    <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3 text-[10px] text-zinc-400 space-y-1">
+                      <div className="text-emerald-400 font-semibold">
+                        Pull request #{applyResult.pullRequestNumber} opened
+                      </div>
+                      <div>{applyResult.message}</div>
+                      {applyResult.pullRequestUrl && (
+                        <a
+                          href={applyResult.pullRequestUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 text-indigo-400 hover:text-indigo-300 font-medium transition"
+                        >
+                          Review on GitHub <ExternalLink size={10} />
+                        </a>
+                      )}
+                    </div>
+                  )}
 
                   {analysis && (
                     <div className="text-center text-[10px] text-zinc-600">

@@ -197,6 +197,7 @@ export async function connectRepository(options: {
     owner: parsed.owner,
     repo: parsed.repo,
     branch,
+    defaultBranch: meta.defaultBranch,
     auth,
   });
 
@@ -228,6 +229,7 @@ async function startAnalysis(options: {
   owner: string;
   repo: string;
   branch: string;
+  defaultBranch: string;
   auth: GitHubAuth;
 }): Promise<boolean> {
   const { db, projectId } = options;
@@ -235,10 +237,26 @@ async function startAnalysis(options: {
   let files;
   try {
     files = await getRepoFileTree(options.owner, options.repo, options.branch, options.auth);
-  } catch (error) {
-    console.error("[connect] Could not read the repository file tree:", error);
-    await markProjectStatus(db, projectId, "Error");
-    return false;
+  } catch (error: unknown) {
+    // A branch that has been renamed since it was listed 404s exactly like
+    // a missing repository. Retry on the default branch before giving up.
+    const status = (error as { status?: number })?.status;
+    const canRetryOnDefault =
+      status === 404 && options.defaultBranch && options.branch !== options.defaultBranch;
+
+    if (!canRetryOnDefault) {
+      console.error("[connect] Could not read the repository file tree:", error);
+      await markProjectStatus(db, projectId, "Error");
+      return false;
+    }
+
+    try {
+      files = await getRepoFileTree(options.owner, options.repo, options.defaultBranch, options.auth);
+    } catch (retryError) {
+      console.error("[connect] Could not read the repository file tree:", retryError);
+      await markProjectStatus(db, projectId, "Error");
+      return false;
+    }
   }
 
   const relevant = files.filter((file) => isAnalyzableFile(file.path, file.type));
@@ -365,7 +383,9 @@ function connectInFallback(options: {
   void (async () => {
     try {
       const { runFallbackAnalysis } = await import("@/lib/analysis-runner");
-      await runFallbackAnalysis(id, jobId, repositoryUrl, branch);
+      // The owner id is what lets the runner resolve this user's own OAuth
+      // token; without it a private repository 404s in fallback mode.
+      await runFallbackAnalysis(id, jobId, repositoryUrl, branch, userId);
     } catch (error) {
       console.error("[connect] Fallback analysis failed:", error);
     }

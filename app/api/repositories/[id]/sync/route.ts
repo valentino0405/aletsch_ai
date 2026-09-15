@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { getDbOrNull } from "@/lib/mongodb";
-import { parseGitHubUrl, getRepoFileTree } from "@/lib/github";
+import { parseGitHubUrl, getRepoFileTree, getRepoMetadata } from "@/lib/github";
 import { ObjectId } from "mongodb";
 import { runBackgroundAnalysis, runFallbackAnalysis } from "@/lib/analysis-runner";
 import { fallbackStore } from "@/lib/fallback-store";
+import { resolveGitHubAuth } from "@/lib/github-connection";
 
 export async function POST(
   req: Request,
@@ -43,7 +44,7 @@ export async function POST(
         createdAt: new Date().toISOString(),
       });
       fallbackStore.updateProjectStatus(fbProject.id, "Synced");
-      await runFallbackAnalysis(fbProject.id, fbJobId, fbProject.repositoryUrl, fbProject.branch);
+      await runFallbackAnalysis(fbProject.id, fbJobId, fbProject.repositoryUrl, fbProject.branch, userId);
       return NextResponse.json({
         success: true,
         jobId: fbJobId,
@@ -71,22 +72,87 @@ export async function POST(
     }
 
     const { owner, repo } = parseGitHubUrl(project.repositoryUrl);
-    const branch = project.branch || "main";
 
     await db.collection("projects").updateOne(
       { _id: project._id },
       { $set: { status: "Syncing", updatedAt: new Date().toISOString() } }
     );
 
-    let files;
-    try {
-      files = await getRepoFileTree(owner, repo, branch);
-    } catch (err: any) {
+    const githubAuth = await resolveGitHubAuth(userId);
+
+    // Which credential is in play decides what the user can do about a
+    // failure, so the hint is written once and reused by every branch below.
+    const credentialHint =
+      githubAuth.source === "user_oauth"
+        ? "Your GitHub account is connected, but this repository is not covered by that authorisation. Re-authorise from Settings; if it belongs to an organisation, an owner must approve the Aletsch OAuth app."
+        : "Aletsch is falling back to the server credential, which can only read public repositories. Connect your GitHub account from Settings to sync a private one.";
+
+    const failSync = async (message: string, status = 400) => {
       await db.collection("projects").updateOne(
-        { _id: project._id },
+        { _id: project!._id },
         { $set: { status: "Error", updatedAt: new Date().toISOString() } }
       );
-      return NextResponse.json({ error: `Sync failed: ${err.message}` }, { status: 400 });
+      return NextResponse.json({ error: message }, { status });
+    };
+
+    // Resolve the repository before the tree. The tree endpoint reports a
+    // missing repo, an unauthorised repo and a renamed branch as the same
+    // 404, which is what made this failure unreadable.
+    let meta;
+    try {
+      meta = await getRepoMetadata(owner, repo, githubAuth);
+    } catch (err: unknown) {
+      if ((err as { status?: number })?.status === 404) {
+        return await failSync(`${owner}/${repo} is not visible to Aletsch. ${credentialHint}`, 404);
+      }
+      return await failSync(
+        `Sync failed: ${(err as Error)?.message || "GitHub could not be reached."}`
+      );
+    }
+
+    // The stored branch is a snapshot from connect time — a renamed or
+    // deleted branch must not be reported as a missing repository.
+    let branch: string = project.branch || meta.defaultBranch || "main";
+    let files;
+    try {
+      files = await getRepoFileTree(owner, repo, branch, githubAuth);
+    } catch (err: unknown) {
+      const status = (err as { status?: number })?.status;
+      const canRetryOnDefault =
+        status === 404 && Boolean(meta.defaultBranch) && branch !== meta.defaultBranch;
+
+      if (!canRetryOnDefault) {
+        return await failSync(
+          status === 404
+            ? `Branch "${branch}" does not exist in ${owner}/${repo}. The repository may be empty, or the branch may have been renamed (the default branch is "${meta.defaultBranch}").`
+            : `Sync failed: ${(err as Error)?.message || "The repository file tree could not be read."}`
+        );
+      }
+
+      try {
+        files = await getRepoFileTree(owner, repo, meta.defaultBranch, githubAuth);
+        branch = meta.defaultBranch;
+      } catch (retryErr: unknown) {
+        return await failSync(
+          `Sync failed on the default branch "${meta.defaultBranch}": ${(retryErr as Error)?.message || "The repository file tree could not be read."}`
+        );
+      }
+    }
+
+    // Persist a corrected branch so the next sync and the background
+    // analyser both use the branch that actually exists.
+    if (branch !== project.branch || meta.defaultBranch !== project.defaultBranch) {
+      await db.collection("projects").updateOne(
+        { _id: project._id },
+        { $set: { branch, defaultBranch: meta.defaultBranch, isPrivate: meta.isPrivate } }
+      );
+      await db
+        .collection("repositories")
+        .updateOne(
+          { projectId: project._id.toString(), ownerId: userId },
+          { $set: { branch, defaultBranch: meta.defaultBranch } }
+        )
+        .catch(() => undefined);
     }
 
     const relevantFiles = files.filter((f) => {

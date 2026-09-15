@@ -5,6 +5,7 @@
 
 import { getDb } from "./mongodb";
 import { parseGitHubUrl, getRawFileContent } from "./github";
+import { resolveGitHubAuth } from "./github-connection";
 import { parseFile } from "./ast/interaction-detector";
 import { extractRoutes } from "./ast/route-detector";
 import { ObjectId } from "mongodb";
@@ -80,6 +81,11 @@ export async function runBackgroundAnalysis(projectId: string, jobId: string) {
     const { owner, repo } = parseGitHubUrl(project.repositoryUrl);
     const branch = project.branch || "main";
 
+    // Private repositories are only visible to the connecting user's own
+    // OAuth token. Without this the runner falls back to the server PAT,
+    // which can read public repositories only, and every fetch 404s.
+    const githubAuth = await resolveGitHubAuth(project.ownerId);
+
     await updateJob({ progress: 10, currentStep: "Loading indexed source file list..." });
 
     // ── 2. Fetch stored sourceFiles ──────────────────────────
@@ -122,7 +128,7 @@ export async function runBackgroundAnalysis(projectId: string, jobId: string) {
       allFilePaths.push(file.path);
 
       try {
-        const content = await getRawFileContent(owner, repo, branch, file.path);
+        const content = await getRawFileContent(owner, repo, branch, file.path, githubAuth);
 
         // Skip very large files (> 500KB)
         if (content.length > 500_000) {
@@ -287,15 +293,24 @@ export async function runBackgroundAnalysis(projectId: string, jobId: string) {
   }
 }
 
-export async function runFallbackAnalysis(projectId: string, jobId: string, repositoryUrl: string, branch: string) {
+export async function runFallbackAnalysis(
+  projectId: string,
+  jobId: string,
+  repositoryUrl: string,
+  branch: string,
+  ownerId?: string
+) {
   const job = (data: Record<string, unknown>) =>
     fallbackStore.saveAnalysisJob({ ...fallbackStore.getJob(jobId), id: jobId, projectId, ...data });
 
   try {
     job({ status: "running", progress: 5, currentStep: "Loading repository files..." });
     const { owner, repo } = parseGitHubUrl(repositoryUrl);
+    // Same reason as the database-backed runner: a private repository is
+    // unreadable without the connecting user's own OAuth token.
+    const githubAuth = ownerId ? await resolveGitHubAuth(ownerId) : undefined;
     const { getRepoFileTree } = await import("./github");
-    const files = await getRepoFileTree(owner, repo, branch);
+    const files = await getRepoFileTree(owner, repo, branch, githubAuth);
     const analyzableFiles = files.filter((file) => file.type === "blob" && shouldAnalyzeFile(file.path)).slice(0, 50);
     console.log(`[Fallback Analysis] ${repositoryUrl}: ${analyzableFiles.length} analyzable files found.`);
     const allFilePaths = analyzableFiles.map((file) => file.path);
@@ -308,7 +323,7 @@ export async function runFallbackAnalysis(projectId: string, jobId: string, repo
         currentStep: `Parsing [${index + 1}/${analyzableFiles.length}]: ${file.path.split("/").pop()}`,
       });
       try {
-        const content = await getRawFileContent(owner, repo, branch, file.path);
+        const content = await getRawFileContent(owner, repo, branch, file.path, githubAuth);
         if (content.length <= 500_000) parsedResults.push(parseFile(file.path, content));
       } catch {
         // Continue when an individual raw file cannot be fetched.

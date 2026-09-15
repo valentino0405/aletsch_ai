@@ -68,12 +68,12 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
 
   return (
     <aside
-      className={`fixed top-0 left-0 z-40 h-screen transition-all duration-300 border-r border-zinc-800/60 bg-[#06060c] flex flex-col justify-between ${
+      className={`fixed top-0 left-0 z-40 h-screen transition-all duration-300 border-r border-zinc-800/60 bg-[#06060c] flex flex-col ${
         isOpen ? "w-64" : "w-20"
       }`}
     >
       {/* Top Header */}
-      <div>
+      <div className="flex-1 min-h-0 flex flex-col">
         <div className="h-16 flex items-center justify-between px-4 border-b border-zinc-800/60">
           <div className="flex items-center gap-3 overflow-hidden">
             <div className="h-8 w-8 min-w-[32px] rounded-lg bg-gradient-to-tr from-indigo-500 via-purple-500 to-cyan-500 flex items-center justify-center font-bold text-white shadow-md shadow-indigo-500/20">
@@ -99,7 +99,7 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
         </div>
 
         {/* Navigation Items */}
-        <nav className="p-3 space-y-1.5 overflow-y-auto max-h-[calc(100vh-280px)]">
+        <nav className="flex-1 min-h-0 overflow-y-auto p-3 space-y-1.5">
           {navItems.map((item) => {
             const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
             const Icon = item.icon;
@@ -108,12 +108,21 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
               <Link
                 key={item.name}
                 href={item.href}
-                className={`group flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all relative ${
+                title={!isOpen ? item.name : undefined}
+                className={`group flex items-center gap-3 py-2.5 rounded-lg text-sm font-medium transition-all relative ${
+                  isOpen ? "px-3" : "px-0 justify-center"
+                } ${
                   isActive
-                    ? "bg-indigo-600/10 text-white border-l-2 border-indigo-500 shadow-[0_0_15px_rgba(99,102,241,0.15)]"
+                    ? "bg-indigo-600/10 text-white shadow-[0_0_15px_rgba(99,102,241,0.15)]"
                     : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/50"
                 }`}
               >
+                {/* A border-left would offset the icon by 2px once the rail
+                    collapses to an icon-only column, so the active marker is
+                    an absolutely positioned bar that sits outside the flow. */}
+                {isActive && (
+                  <span className="absolute left-0 top-1/2 -translate-y-1/2 h-6 w-0.5 rounded-r bg-indigo-500" />
+                )}
                 <Icon
                   size={18}
                   className={`${
@@ -133,7 +142,7 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
       </div>
 
       {/* Bottom Info & User Profile */}
-      <div className="p-3 border-t border-zinc-800/60 bg-[#040409]">
+      <div className="shrink-0 p-3 border-t border-zinc-800/60 bg-[#040409]">
         {/* Project Card */}
         {isOpen && (
           <div className="mb-4 p-3 rounded-lg border border-zinc-800/80 bg-zinc-950/40 relative overflow-hidden">
