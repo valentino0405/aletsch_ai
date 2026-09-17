@@ -151,12 +151,12 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
         </div>
 
         {/* Navigation Items */}
-        <nav className="flex-1 min-h-0 overflow-y-auto p-3 space-y-4">
+        <nav className="flex-1 min-h-0 overflow-y-auto px-2 py-3 space-y-3 custom-scrollbar">
           {navCategories.map((category) => (
-            <div key={category.title} className="space-y-1.5">
+            <div key={category.title} className="space-y-0.5">
               {isOpen && (
-                <div className="px-3 pb-1">
-                  <span className="text-[10px] font-bold tracking-wider text-zinc-500 uppercase">
+                <div className="px-3 pb-1 pt-1">
+                  <span className="text-[9px] font-bold tracking-wider text-zinc-500/80 uppercase">
                     {category.title}
                   </span>
                 </div>
@@ -170,22 +170,22 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                     key={item.name}
                     href={item.href}
                     title={!isOpen ? item.name : undefined}
-                    className={`group flex items-center gap-3 py-2.5 rounded-lg text-sm font-medium transition-all relative ${
+                    className={`group flex items-center gap-2.5 py-1.5 rounded-md text-[13px] font-medium transition-all relative ${
                       isOpen ? "px-3" : "px-0 justify-center"
                     } ${
                       isActive
-                        ? "bg-indigo-600/10 text-white shadow-[0_0_15px_rgba(99,102,241,0.15)]"
+                        ? "bg-indigo-600/15 text-white shadow-[0_0_10px_rgba(99,102,241,0.1)]"
                         : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/50"
                     }`}
                   >
                     {isActive && (
-                      <span className="absolute left-0 top-1/2 -translate-y-1/2 h-6 w-0.5 rounded-r bg-indigo-500" />
+                      <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-0.5 rounded-r bg-indigo-500" />
                     )}
                     <Icon
-                      size={18}
+                      size={15}
                       className={`${
                         isActive ? "text-indigo-400" : "text-zinc-500 group-hover:text-zinc-300"
-                      } transition-colors`}
+                      } transition-colors shrink-0`}
                     />
                     {isOpen && <span>{item.name}</span>}
                     {!isOpen && (
@@ -202,10 +202,10 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
       </div>
 
       {/* Bottom Info & User Profile */}
-      <div className="shrink-0 p-3 border-t border-zinc-800/60 bg-[#040409]">
+      <div className="shrink-0 p-2 border-t border-zinc-800/60 bg-[#040409]">
         {/* Project Card */}
         {isOpen && (
-          <div className="mb-4 p-3 rounded-lg border border-zinc-800/80 bg-zinc-950/40 relative overflow-hidden">
+          <div className="mb-2 p-2.5 rounded-lg border border-zinc-800/80 bg-zinc-950/40 relative overflow-hidden">
             <div className="absolute top-0 right-0 w-12 h-12 bg-emerald-500/5 rounded-full blur-xl" />
             <div className="flex items-center justify-between mb-1">
               <span className="text-[10px] text-zinc-500 font-semibold uppercase">
@@ -230,7 +230,7 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                 href={activeProject.repositoryUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="mt-2 text-[10px] text-indigo-400 flex items-center gap-1 hover:text-indigo-300 font-medium transition"
+                className="mt-1.5 text-[10px] text-indigo-400 flex items-center gap-1 hover:text-indigo-300 font-medium transition"
               >
                 View Repository <ExternalLink size={10} />
               </a>
@@ -238,7 +238,7 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
               // An in-app route, so it must not open in a new tab.
               <Link
                 href="/repositories"
-                className="mt-2 text-[10px] text-indigo-400 flex items-center gap-1 hover:text-indigo-300 font-medium transition"
+                className="mt-1.5 text-[10px] text-indigo-400 flex items-center gap-1 hover:text-indigo-300 font-medium transition"
               >
                 Connect Repository <ChevronRight size={10} />
               </Link>
@@ -247,7 +247,7 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
         )}
 
         {/* User profile section */}
-        <div className="flex items-center justify-between gap-3 px-2 py-1 rounded-lg">
+        <div className="flex items-center justify-between gap-3 px-1.5 py-1 rounded-lg">
           <div className="flex items-center gap-3 overflow-hidden">
             <UserButton
               appearance={{
