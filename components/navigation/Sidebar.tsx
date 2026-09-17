@@ -20,6 +20,17 @@ import {
   ChevronLeft,
   ChevronRight,
   ExternalLink,
+  LineChart,
+  CalendarDays,
+  Route,
+  Magnet,
+  RefreshCcw,
+  Database,
+  Clock,
+  Layers,
+  Code2,
+  GitCommit,
+  GitPullRequest
 } from "lucide-react";
 
 interface SidebarProps {
@@ -27,18 +38,59 @@ interface SidebarProps {
   setIsOpen: (open: boolean) => void;
 }
 
-const navItems = [
-  { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { name: "Projects", href: "/projects", icon: FolderKanban },
-  { name: "Repositories", href: "/repositories", icon: GitBranch },
-  { name: "Funnel Analysis", href: "/funnel-analysis", icon: Filter },
-  { name: "Events", href: "/events", icon: Activity },
-  { name: "Instrumentation", href: "/instrumentation", icon: Cpu },
-  { name: "AI Insights", href: "/insights", icon: BrainCircuit },
-  { name: "Reports", href: "/reports", icon: FileBarChart2 },
-  { name: "Users", href: "/users", icon: Users },
-  { name: "Alerts", href: "/alerts", icon: BellRing },
-  { name: "Settings", href: "/settings", icon: Settings },
+const navCategories = [
+  {
+    title: "MAIN",
+    items: [
+      { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+      { name: "Projects", href: "/projects", icon: FolderKanban },
+      { name: "Repositories", href: "/repositories", icon: GitBranch },
+    ],
+  },
+  {
+    title: "PRODUCT ANALYTICS",
+    items: [
+      { name: "Funnel Analysis", href: "/funnel-analysis", icon: Filter },
+      { name: "Trends", href: "/trends", icon: LineChart },
+      { name: "Retention", href: "/retention", icon: CalendarDays },
+      { name: "User Paths", href: "/user-paths", icon: Route },
+      { name: "Stickiness", href: "/stickiness", icon: Magnet },
+      { name: "Lifecycle", href: "/lifecycle", icon: RefreshCcw },
+      { name: "SQL (Beta)", href: "/sql", icon: Database },
+    ],
+  },
+  {
+    title: "BEHAVIOR",
+    items: [
+      { name: "Events", href: "/events", icon: Activity },
+      { name: "Users", href: "/users", icon: Users },
+      { name: "Sessions", href: "/sessions", icon: Clock },
+      { name: "Cohorts", href: "/cohorts", icon: Layers },
+    ],
+  },
+  {
+    title: "DEVELOPER",
+    items: [
+      { name: "Instrumentation", href: "/instrumentation", icon: Cpu },
+      { name: "Code Intelligence", href: "/code-intelligence", icon: Code2 },
+      { name: "GitHub Changes", href: "/github-changes", icon: GitCommit },
+      { name: "PR History", href: "/pr-history", icon: GitPullRequest },
+    ],
+  },
+  {
+    title: "INSIGHTS",
+    items: [
+      { name: "AI Insights", href: "/insights", icon: BrainCircuit },
+      { name: "Reports", href: "/reports", icon: FileBarChart2 },
+      { name: "Alerts", href: "/alerts", icon: BellRing },
+    ],
+  },
+  {
+    title: "MANAGEMENT",
+    items: [
+      { name: "Settings", href: "/settings", icon: Settings },
+    ],
+  },
 ];
 
 export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
@@ -99,45 +151,53 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
         </div>
 
         {/* Navigation Items */}
-        <nav className="flex-1 min-h-0 overflow-y-auto p-3 space-y-1.5">
-          {navItems.map((item) => {
-            const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
-            const Icon = item.icon;
+        <nav className="flex-1 min-h-0 overflow-y-auto p-3 space-y-4">
+          {navCategories.map((category) => (
+            <div key={category.title} className="space-y-1.5">
+              {isOpen && (
+                <div className="px-3 pb-1">
+                  <span className="text-[10px] font-bold tracking-wider text-zinc-500 uppercase">
+                    {category.title}
+                  </span>
+                </div>
+              )}
+              {category.items.map((item) => {
+                const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
+                const Icon = item.icon;
 
-            return (
-              <Link
-                key={item.name}
-                href={item.href}
-                title={!isOpen ? item.name : undefined}
-                className={`group flex items-center gap-3 py-2.5 rounded-lg text-sm font-medium transition-all relative ${
-                  isOpen ? "px-3" : "px-0 justify-center"
-                } ${
-                  isActive
-                    ? "bg-indigo-600/10 text-white shadow-[0_0_15px_rgba(99,102,241,0.15)]"
-                    : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/50"
-                }`}
-              >
-                {/* A border-left would offset the icon by 2px once the rail
-                    collapses to an icon-only column, so the active marker is
-                    an absolutely positioned bar that sits outside the flow. */}
-                {isActive && (
-                  <span className="absolute left-0 top-1/2 -translate-y-1/2 h-6 w-0.5 rounded-r bg-indigo-500" />
-                )}
-                <Icon
-                  size={18}
-                  className={`${
-                    isActive ? "text-indigo-400" : "text-zinc-500 group-hover:text-zinc-300"
-                  } transition-colors`}
-                />
-                {isOpen && <span>{item.name}</span>}
-                {!isOpen && (
-                  <div className="absolute left-full ml-2 px-2 py-1 bg-zinc-900 text-white text-xs rounded opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity whitespace-nowrap z-50 border border-zinc-800">
-                    {item.name}
-                  </div>
-                )}
-              </Link>
-            );
-          })}
+                return (
+                  <Link
+                    key={item.name}
+                    href={item.href}
+                    title={!isOpen ? item.name : undefined}
+                    className={`group flex items-center gap-3 py-2.5 rounded-lg text-sm font-medium transition-all relative ${
+                      isOpen ? "px-3" : "px-0 justify-center"
+                    } ${
+                      isActive
+                        ? "bg-indigo-600/10 text-white shadow-[0_0_15px_rgba(99,102,241,0.15)]"
+                        : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/50"
+                    }`}
+                  >
+                    {isActive && (
+                      <span className="absolute left-0 top-1/2 -translate-y-1/2 h-6 w-0.5 rounded-r bg-indigo-500" />
+                    )}
+                    <Icon
+                      size={18}
+                      className={`${
+                        isActive ? "text-indigo-400" : "text-zinc-500 group-hover:text-zinc-300"
+                      } transition-colors`}
+                    />
+                    {isOpen && <span>{item.name}</span>}
+                    {!isOpen && (
+                      <div className="absolute left-full ml-2 px-2 py-1 bg-zinc-900 text-white text-xs rounded opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity whitespace-nowrap z-50 border border-zinc-800">
+                        {item.name}
+                      </div>
+                    )}
+                  </Link>
+                );
+              })}
+            </div>
+          ))}
         </nav>
       </div>
 
