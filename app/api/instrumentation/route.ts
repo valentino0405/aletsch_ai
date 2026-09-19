@@ -266,6 +266,15 @@ export async function GET(req: Request) {
       proposedByFile.set(interaction.filePath, set);
     }
 
+    const latestPlan = plans[0] || null;
+
+    // Counted, not inferred: how many events this project has actually
+    // received. Zero here with a non-zero instrumented count means the
+    // code is wired up but no traffic has reached the ingest endpoint.
+    const eventsReceived = await db
+      .collection("events")
+      .countDocuments({ projectId: { $in: projectIds } });
+
     return NextResponse.json({
       analysis: latestAnalysis
         ? {
@@ -310,6 +319,31 @@ export async function GET(req: Request) {
       }),
       grouped: groupedList,
       totalInteractions: interactions.length,
+      // The most recent plan, so the UI can tell "events generated" from
+      // "events committed to a branch". Without this the pipeline view
+      // has no way to know an apply ever happened and pins the last two
+      // stages to "future" forever.
+      plan: latestPlan
+        ? {
+            status: latestPlan.status,
+            branch: latestPlan.branch || null,
+            baseBranch: latestPlan.baseBranch || null,
+            pullRequest: latestPlan.pullRequest || null,
+            eventCount: Array.isArray(latestPlan.approvedEventNames)
+              ? latestPlan.approvedEventNames.length
+              : 0,
+            fileCount: Array.isArray(latestPlan.files) ? latestPlan.files.length : 0,
+            createdAt: latestPlan.createdAt || null,
+          }
+        : null,
+      // Events that exist in committed code vs. events actually received
+      // from the running application. These are different claims and the
+      // dashboard must not present the first as if it were the second.
+      eventsInstrumented: Array.from(liveEventsByFile.values()).reduce(
+        (total, events) => total + events.length,
+        0
+      ),
+      eventsReceived,
     });
   } catch (error: any) {
     console.error("[Instrumentation API] Error:", error);

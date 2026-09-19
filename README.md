@@ -974,58 +974,58 @@ Aletsch AI is being developed incrementally.
 
 ## Phase 2 — Repository Intelligence
 
-- [ ] GitHub repository connection
-- [ ] Repository metadata extraction
-- [ ] Source code analysis
-- [ ] Route detection
-- [ ] Component detection
-- [ ] Form detection
-- [ ] CTA detection
-- [ ] API interaction detection
+- [x] GitHub repository connection
+- [x] Repository metadata extraction
+- [x] Source code analysis
+- [x] Route detection
+- [x] Component detection
+- [x] Form detection
+- [x] CTA detection
+- [x] API interaction detection
 
 ## Phase 3 — Semantic Understanding
 
-- [ ] Component intent inference
-- [ ] User journey inference
-- [ ] Event recommendation engine
-- [ ] Event importance scoring
-- [ ] Application archetype detection
+- [x] Component intent inference
+- [x] User journey inference
+- [x] Event recommendation engine
+- [x] Event importance scoring
+- [x] Application archetype detection
 
 ## Phase 4 — Automatic Instrumentation
 
-- [ ] Event generation
-- [ ] Analytics SDK integration
-- [ ] Automatic instrumentation
-- [ ] Code modification pipeline
-- [ ] Instrumentation validation
-- [ ] Repository update workflow
+- [x] Event generation
+- [x] Analytics SDK integration
+- [x] Automatic instrumentation
+- [x] Code modification pipeline
+- [x] Instrumentation validation
+- [x] Repository update workflow
 
 ## Phase 5 — Analytics Engine
 
-- [ ] Real event collection
-- [ ] Session tracking
-- [ ] User journeys
-- [ ] Funnel generation
-- [ ] Drop-off detection
+- [x] Real event collection
+- [x] Session tracking
+- [x] User journeys
+- [x] Funnel generation
+- [x] Drop-off detection
 - [ ] Behavioral segmentation
 
 ## Phase 6 — AI Analytics
 
-- [ ] AI-generated insights
-- [ ] Root-cause analysis
+- [x] AI-generated insights
+- [x] Root-cause analysis
+- [x] Conversion recommendations
+- [x] Automated reports
 - [ ] Anomaly detection
-- [ ] Conversion recommendations
 - [ ] Natural-language analytics
-- [ ] Automated reports
 
 ## Phase 7 — Production Platform
 
+- [x] Advanced alerts
+- [x] Exportable reports
 - [ ] GitHub webhooks
 - [ ] Background processing
 - [ ] Scalable event ingestion
 - [ ] Team collaboration
-- [ ] Advanced alerts
-- [ ] Exportable reports
 - [ ] Production deployment
 
 ---
@@ -1179,12 +1179,51 @@ http://localhost:3000
 
 # 🔒 Environment Variables
 
+Copy `.env.example` to `.env.local` and fill it in. Only the first group is
+required to boot the app; the rest unlock individual features.
+
+### Required
+
 | Variable | Purpose |
 |---|---|
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Clerk client authentication |
 | `CLERK_SECRET_KEY` | Clerk server authentication |
-| `MONGODB_URI` | MongoDB Atlas connection |
+| `MONGODB_URI` | MongoDB Atlas connection string |
 | `MONGODB_DB` | MongoDB database name |
+
+Without `MONGODB_URI` the app still runs, but falls back to an in-memory
+store that is wiped on every restart. The dashboard says so explicitly
+(`storage: "in-memory"`, System Health shows the database as degraded).
+
+### GitHub — repository connection and the instrumentation PR
+
+| Variable | Purpose |
+|---|---|
+| `GITHUB_CLIENT_ID` | OAuth app ID — used by the "Connect GitHub" flow |
+| `GITHUB_CLIENT_SECRET` | OAuth app secret |
+| `GITHUB_OAUTH_REDIRECT_BASE` | Base URL the OAuth callback returns to (defaults to `NEXT_PUBLIC_APP_URL`) |
+| `GITHUB_TOKEN` | Optional fallback PAT for local development, used only when no OAuth token is stored |
+| `TOKEN_ENCRYPTION_KEY` | 32-byte key (hex or base64) that encrypts stored GitHub tokens at rest. **Required if you connect GitHub** — without it tokens cannot be stored. |
+
+Private repositories need OAuth (or a PAT with `repo` scope). A token that
+only carries `public_repo` produces a 404 on a private repo, because GitHub
+hides repositories it will not let the token see.
+
+### AI — insights and semantic intent inference
+
+| Variable | Purpose |
+|---|---|
+| `OPENROUTER_API_KEY` | OpenRouter API key. Without it, intent classification falls back to the deterministic rule engine and insights restate the measured funnel instead of diagnosing it. |
+| `AI_MODEL` | Optional model slug. OpenRouter retires `:free` slugs without notice, so `AIService` falls through a built-in candidate list when the configured one returns 404. See <https://openrouter.ai/models?max_price=0>. |
+
+### Optional
+
+| Variable | Purpose |
+|---|---|
+| `NEXT_PUBLIC_APP_URL` | Public origin of this deployment, used for OAuth redirects and the generated tracker snippet |
+| `NEXT_PUBLIC_POSTHOG_KEY` | PostHog project key, if you want events mirrored to PostHog |
+| `NEXT_PUBLIC_POSTHOG_HOST` | PostHog host (defaults to PostHog Cloud) |
+| `VERIFY_BASE_URL` | Base URL the `scripts/verify-*` checks run against (defaults to `http://localhost:3000`) |
 
 **Never commit `.env.local` or production secrets to Git.**
 
@@ -1197,29 +1236,39 @@ http://localhost:3000
 ### Currently implemented
 
 ```text
-✓ Next.js application
-✓ TypeScript
-✓ Responsive dashboard
-✓ Analytics-oriented UI
+✓ Next.js application, TypeScript, responsive dashboard
 ✓ Clerk authentication
-✓ MongoDB foundation
-✓ Project architecture
-✓ Dashboard modules
-✓ Representative analytics visualizations
+✓ MongoDB persistence (with an in-memory fallback that labels itself)
+✓ GitHub OAuth connection, encrypted token storage, repository sync
+✓ AST-based analysis: routes, components, forms, CTAs, API calls
+✓ Semantic intent inference (LLM, with a deterministic rule-engine fallback)
+✓ Event generation, importance scoring, reviewable instrumentation plan
+✓ Codemod pipeline: wraps handlers, validates, opens a pull request
+✓ Event ingestion via a per-project write key, session tracking
+✓ Funnel derivation, drop-off detection, alerts
+✓ AI insights grounded in counted events, with provenance recorded
+✓ Report export (download + print)
 ```
 
 ### Under development
 
 ```text
-○ GitHub repository intelligence
-○ AST-based application analysis
-○ Semantic component understanding
-○ Automatic event generation
-○ Automatic instrumentation
-○ Real event ingestion
-○ Funnel engine
-○ AI-powered analytics
+○ Behavioral segmentation
+○ Anomaly detection
+○ Natural-language analytics queries
+○ GitHub webhooks (re-analysis on push)
+○ Background job processing (analysis currently runs in-process)
+○ Team collaboration / multi-seat projects
+○ Production deployment hardening
 ```
+
+### A note on empty screens
+
+Funnel Analysis, Events, Users, Reports and AI Insights read
+"Insufficient data" until the instrumentation PR is **merged and the
+instrumented app is running**. Aletsch never fabricates analytics — every
+number on screen traces back to a counted event, or the page says it has
+none. An empty funnel is the system working correctly, not a bug.
 
 ---
 

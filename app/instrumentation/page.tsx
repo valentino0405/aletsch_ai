@@ -231,6 +231,17 @@ export default function Instrumentation() {
   const [totalInteractions, setTotalInteractions] = useState(0);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
+  // The most recently stored plan for this project. Distinct from
+  // `applyResult`, which only exists for an apply performed in this
+  // browser session — this survives a reload.
+  const [plan, setPlan] = useState<{
+    status: string;
+    branch: string | null;
+    baseBranch: string | null;
+    pullRequest: { number?: number; url?: string; state?: string } | null;
+    eventCount: number;
+    fileCount: number;
+  } | null>(null);
   const [applyResult, setApplyResult] = useState<{
     branch: string;
     baseBranch: string;
@@ -311,12 +322,30 @@ export default function Instrumentation() {
       const isRunning = jobStatus === "running" || jobStatus === "queued";
       const isDone = hasAnalysis && (data.analysis.status?.startsWith("completed"));
 
+      // Stages 4 and 5 were previously pinned to "future" unconditionally,
+      // so applying a plan and opening a PR never advanced the pipeline.
+      // They are driven by the plan the API now returns: a catalog of
+      // approved events means generation happened, and an applied plan
+      // means the code was committed to a branch.
+      const storedPlan = data.plan || null;
+      setPlan(storedPlan);
+      const hasGeneratedEvents = !!storedPlan && storedPlan.eventCount > 0;
+      const hasApplied = storedPlan?.status === "applied";
+
       setPipelineSteps((prev) =>
         prev.map((step, idx) => {
           if (idx === 0) return { ...step, status: hasAnalysis || isRunning ? "complete" : "pending" };
           if (idx === 1) return { ...step, status: isDone ? "complete" : isRunning ? "active" : "pending" };
           if (idx === 2) return { ...step, status: isDone ? "complete" : "pending" };
-          return { ...step, status: "future" };
+          if (idx === 3)
+            return {
+              ...step,
+              status: hasGeneratedEvents ? "complete" : isDone ? "active" : "future",
+            };
+          return {
+            ...step,
+            status: hasApplied ? "complete" : hasGeneratedEvents ? "active" : "future",
+          };
         })
       );
 
@@ -894,6 +923,33 @@ export default function Instrumentation() {
                           className="inline-flex items-center gap-1 text-indigo-400 hover:text-indigo-300 font-medium transition"
                         >
                           Review on GitHub <ExternalLink size={10} />
+                        </a>
+                      )}
+                    </div>
+                  )}
+
+                  {/* A plan applied in an earlier session. `applyResult`
+                      only covers an apply done in this browser session,
+                      so without this the PR link vanished on reload. */}
+                  {!applyResult && plan?.status === "applied" && (
+                    <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3 text-[10px] text-zinc-400 space-y-1">
+                      <div className="text-emerald-400 font-semibold">
+                        Instrumentation applied
+                      </div>
+                      <div>
+                        {plan.eventCount} event{plan.eventCount === 1 ? "" : "s"} committed across{" "}
+                        {plan.fileCount} file{plan.fileCount === 1 ? "" : "s"}
+                        {plan.branch ? ` on "${plan.branch}"` : ""}.
+                        {plan.baseBranch ? ` "${plan.baseBranch}" was not touched.` : ""}
+                      </div>
+                      {plan.pullRequest?.url && (
+                        <a
+                          href={plan.pullRequest.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 text-indigo-400 hover:text-indigo-300 font-medium transition"
+                        >
+                          Review PR #{plan.pullRequest.number} on GitHub <ExternalLink size={10} />
                         </a>
                       )}
                     </div>

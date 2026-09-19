@@ -86,6 +86,11 @@ export async function generateProjectInsights(projectId: string) {
     };
 
     let insightResult: any = null;
+    // Whether a model actually wrote this insight. `insightResult` is
+    // always truthy further down (the deterministic branch fills it in),
+    // so it cannot answer that question on its own — reading it as
+    // provenance labelled rule-based text as AI-generated.
+    let aiAuthored = false;
 
     if (AIService.isConfigured()) {
       insightResult = await AIService.generateStructured(
@@ -101,26 +106,32 @@ export async function generateProjectInsights(projectId: string) {
           };
         }
       );
+      aiAuthored = !!insightResult;
     }
 
     // ── 4. Deterministic fallback, still from real numbers ───
     // Used when no model is configured or the call failed. It restates
     // the measured funnel; it never introduces a figure of its own.
     if (!insightResult) {
+      // Distinguish "no key" from "the key is set but the call failed" —
+      // they need different fixes, and the earlier wording blamed the
+      // former for what was almost always the latter.
+      const aiNote = AIService.isConfigured()
+        ? "The configured AI model did not return a usable response, so this is a direct restatement of the measured funnel. Check the server log for the OpenRouter error."
+        : "No AI model is configured, so this is a direct restatement of the measured funnel rather than a diagnosis.";
       const worst = funnel.largestDropoff;
       insightResult = worst
         ? {
             type: worst.rate >= 25 ? "critical" : "opportunity",
             title: `${worst.rate.toFixed(1)}% drop-off between ${worst.from} and ${worst.to}`,
             description: `Of the ${funnel.totalUsers} user${funnel.totalUsers === 1 ? "" : "s"} who reached ${funnel.steps[0].name}, ${worst.rate.toFixed(1)}% did not continue from ${worst.from} to ${worst.to}. End-to-end conversion through "${funnel.funnelName}" is ${funnel.conversionRate?.toFixed(1)}%.`,
-            recommendation: `Inspect the journey between ${worst.from} and ${worst.to}. No AI model is configured, so this is a direct restatement of the measured funnel rather than a diagnosis.`,
+            recommendation: `Inspect the journey between ${worst.from} and ${worst.to}. ${aiNote}`,
           }
         : {
             type: "behavior",
             title: `${funnel.conversionRate?.toFixed(1)}% complete "${funnel.funnelName}"`,
             description: `${funnel.totalUsers} user${funnel.totalUsers === 1 ? "" : "s"} entered the funnel and ${funnel.steps[funnel.steps.length - 1].users} reached the final step. No single step loses a disproportionate share.`,
-            recommendation:
-              "No significant drop-off was measured. Configure OPENROUTER_API_KEY for a qualitative analysis of these numbers.",
+            recommendation: `No significant drop-off was measured. ${aiNote}`,
           };
     }
 
@@ -139,7 +150,7 @@ export async function generateProjectInsights(projectId: string) {
         largestDropoff: funnel.largestDropoff,
         totalUsers,
         totalEvents: eventCount,
-        aiGenerated: AIService.isConfigured() && !!insightResult,
+        aiGenerated: aiAuthored,
       },
       createdAt: new Date().toISOString(),
     };

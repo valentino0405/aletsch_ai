@@ -4,6 +4,7 @@ import { getDbOrNull } from "@/lib/mongodb";
 import { fallbackStore } from "@/lib/fallback-store";
 import { resolveFunnel, formatRate } from "@/lib/analytics/funnel";
 import { computeTrends } from "@/lib/analytics/trends";
+import { AIService } from "@/lib/ai/client";
 
 /**
  * The time windows the dashboard's range picker can ask for. The picker used
@@ -218,6 +219,17 @@ export async function GET(req: Request) {
       // 4. Repos connected count
       const reposCount = await db.collection("repositories").countDocuments({ ownerId: userId });
 
+      // 4b. Whether the AI layer has actually produced anything. A key
+      // being present proves nothing — OpenRouter retires model slugs,
+      // and every call 404s while `isConfigured()` still returns true.
+      // `grounding.aiGenerated` is set only when a model really wrote
+      // the insight, so counting those is the honest health signal.
+      const aiConfigured = AIService.isConfigured();
+      const aiAuthoredInsights = await db.collection("insights").countDocuments({
+        projectId: { $in: projectIds },
+        "grounding.aiGenerated": true,
+      });
+
       // 5. Average Session Time (sessions that started inside the range)
       const sessions = await db.collection("sessions").find({
         projectId: { $in: projectIds },
@@ -385,6 +397,18 @@ export async function GET(req: Request) {
             : "No events received yet",
         },
         aiAnalysis: {
+          // This used to report `componentsCount`, which is produced by
+          // the AST parser, not by a model — so it read "Operational"
+          // the whole time every LLM call was failing on a retired
+          // model slug. Provenance is recorded on the insight itself.
+          state: !aiConfigured ? "off" : aiAuthoredInsights > 0 ? "ok" : "idle",
+          detail: !aiConfigured
+            ? "OPENROUTER_API_KEY is not set — rule engine only"
+            : aiAuthoredInsights > 0
+              ? `${aiAuthoredInsights} model-authored insight${aiAuthoredInsights === 1 ? "" : "s"}`
+              : "Key configured; no insight has been model-authored yet",
+        },
+        codeAnalysis: {
           state: componentsCount > 0 ? "ok" : "idle",
           detail: componentsCount > 0
             ? `${componentsCount.toLocaleString()} components detected`

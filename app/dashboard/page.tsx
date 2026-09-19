@@ -40,7 +40,9 @@ interface TrendDelta {
 }
 
 interface HealthSignal {
-  state: "ok" | "idle" | "degraded";
+  // "off" is distinct from "idle": idle means the subsystem works but
+  // has nothing to do yet, off means it was never configured.
+  state: "ok" | "idle" | "degraded" | "off";
   detail: string;
 }
 
@@ -109,6 +111,7 @@ interface DashboardData {
     repoConnection: HealthSignal;
     eventProcessing: HealthSignal;
     aiAnalysis: HealthSignal;
+    codeAnalysis?: HealthSignal;
     dashboardService: HealthSignal;
   };
 }
@@ -145,6 +148,7 @@ const HEALTH_TONE: Record<string, { dot: string; text: string }> = {
   ok: { dot: "bg-emerald-400", text: "text-emerald-400" },
   idle: { dot: "bg-zinc-600", text: "text-zinc-500" },
   degraded: { dot: "bg-amber-400", text: "text-amber-400" },
+  off: { dot: "bg-zinc-700", text: "text-zinc-600" },
 };
 
 export default function Dashboard() {
@@ -349,7 +353,11 @@ export default function Dashboard() {
   const healthRows = [
     { name: "Repository Connection", signal: data?.systemHealth?.repoConnection ?? IDLE_SIGNAL },
     { name: "Event Processing", signal: data?.systemHealth?.eventProcessing ?? IDLE_SIGNAL },
-    { name: "AI Analysis Engine", signal: data?.systemHealth?.aiAnalysis ?? IDLE_SIGNAL },
+    // The AST parser and the LLM are separate subsystems that fail
+    // independently — one row for both hid a dead model behind a
+    // healthy parser.
+    { name: "Code Analysis (AST)", signal: data?.systemHealth?.codeAnalysis ?? IDLE_SIGNAL },
+    { name: "AI Model", signal: data?.systemHealth?.aiAnalysis ?? IDLE_SIGNAL },
     { name: "Dashboard Service", signal: data?.systemHealth?.dashboardService ?? IDLE_SIGNAL },
   ];
   // The summary badge reflects the rows beneath it. "All systems OK" is only
@@ -952,11 +960,19 @@ export default function Dashboard() {
                           value: String(pendingComponents.length),
                         },
                         {
-                          label: "Events live",
+                          label: "Events instrumented",
                           value:
                             liveEventCount > 0
                               ? String(liveEventCount)
                               : `0 (${proposedEventCount} proposed)`,
+                        },
+                        {
+                          // "Events live" used to show the instrumented
+                          // count, which reads as received telemetry and
+                          // contradicted the Events Explorer showing 0.
+                          // These are two different claims; show both.
+                          label: "Events received",
+                          value: String(data?.eventsTracked ?? 0),
                         },
                       ].map(({ label, value }) => (
                         <div key={label} className="flex items-center justify-between text-[11px]">
@@ -1047,6 +1063,8 @@ export default function Dashboard() {
                                 ? "Operational"
                                 : row.signal.state === "degraded"
                                 ? "Degraded"
+                                : row.signal.state === "off"
+                                ? "Not configured"
                                 : "Idle"}
                             </span>
                           </div>
