@@ -166,11 +166,14 @@ export function parseFilters(raw: unknown, context: string): PropertyFilter[] {
     const operator = typeof candidate.operator === "string" ? candidate.operator.trim() : "";
 
     if (!field) throw new FilterValidationError(`${context} contains a filter without a field.`);
+    // The context is repeated on every rejection below. In a six-step
+    // funnel, "not a filterable field" without it leaves the developer
+    // hunting for which step they typo'd.
     if (!isKnownField(field)) {
-      throw new FilterValidationError(`"${field}" is not a filterable field.`);
+      throw new FilterValidationError(`"${field}" is not a filterable field (${context}).`);
     }
     if (!OPERATORS.has(operator)) {
-      throw new FilterValidationError(`"${operator}" is not a supported filter operator.`);
+      throw new FilterValidationError(`"${operator}" is not a supported filter operator (${context}).`);
     }
 
     if (OPERATORS_WITHOUT_VALUE.has(operator)) {
