@@ -20,6 +20,7 @@ import { timingSafeEqual } from "node:crypto";
 import { getDbOrNull } from "@/lib/mongodb";
 import { fallbackStore } from "@/lib/fallback-store";
 import { normalizeIngestPayload, type RawIngestPayload } from "@/lib/analytics/ingest";
+import { contextFromRequest, resolveEventContext } from "@/lib/analytics/enrichment";
 import { consume } from "@/lib/security/rate-limit";
 
 /** Per project+session: generous enough for real use, bounded enough to matter. */
@@ -175,6 +176,14 @@ export async function POST(req: Request) {
     // ── 6. Persist ───────────────────────────────────────────
     const receivedAt = new Date().toISOString();
 
+    // Device, browser and OS come from the User-Agent; country from the
+    // edge geo header when the deployment sits behind one. Both are
+    // derived here rather than sent by the tracker, so existing
+    // instrumentation keeps working untouched. Anything we cannot
+    // determine is simply absent — the analytics layer reports a missing
+    // dimension as unavailable rather than inventing "Unknown".
+    const context = resolveEventContext(contextFromRequest(req.headers), event.declaredContext);
+
     await db.collection("events").insertOne({
       projectId: event.projectId,
       eventName: event.eventName,
@@ -191,6 +200,11 @@ export async function POST(req: Request) {
       firstSeen: event.timestamp,
       lastSeen: event.timestamp,
       receivedAt,
+      source: event.source,
+      // Spread last and only when present: an event with no detectable
+      // device must not carry `device: undefined`, which would make the
+      // field look populated to a `$exists` check.
+      ...context,
     });
 
     // ── 7. Session stitching ─────────────────────────────────
@@ -208,6 +222,8 @@ export async function POST(req: Request) {
           entryPath: event.path,
           referrer: event.referrer,
           createdAt: receivedAt,
+          source: event.source,
+          ...context,
         },
       },
       { upsert: true }

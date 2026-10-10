@@ -16,6 +16,8 @@
 //      documents into the events collection.
 // ============================================================
 
+import { normalizeDeclaredContext, normalizeSource, type EventContext, type EventSource } from "./enrichment";
+
 /** Payload the generated tracker sends (see tracker-template.ts). */
 export interface RawIngestPayload {
   projectId?: unknown;
@@ -32,6 +34,16 @@ export interface RawIngestPayload {
   referrer?: unknown;
   category?: unknown;
   properties?: unknown;
+  /**
+   * Optional device/browser/os/country declared by the caller. The
+   * generated tracker does not send this; the route derives the same
+   * fields from request headers and those take precedence. Present so
+   * server-to-server and synthetic callers can supply what a header
+   * cannot tell us. See lib/analytics/enrichment.ts.
+   */
+  context?: unknown;
+  /** Optional "web" | "server" | "synthetic". Defaults to "web". */
+  source?: unknown;
 }
 
 export interface NormalizedEvent {
@@ -46,6 +58,10 @@ export interface NormalizedEvent {
   properties: Record<string, string | number | boolean>;
   /** Property keys dropped as sensitive, reported back so the developer can fix the call site. */
   redactedKeys: string[];
+  /** Caller-declared context, already normalised. Fields may be absent. */
+  declaredContext: EventContext;
+  /** Marks generated demo traffic so it can be labelled and excluded. */
+  source: EventSource;
 }
 
 export type NormalizeResult =
@@ -285,6 +301,8 @@ export function normalizeIngestPayload(raw: RawIngestPayload, now = Date.now()):
       timestamp: normalizeTimestamp(raw.timestamp, now),
       properties,
       redactedKeys,
+      declaredContext: normalizeDeclaredContext(raw.context),
+      source: normalizeSource(raw.source),
     },
   };
 }
