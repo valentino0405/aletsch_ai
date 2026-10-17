@@ -1,40 +1,58 @@
-import { MongoClient } from "mongodb";
+import { MongoClient, Db } from "mongodb";
 
 const uri = process.env.MONGODB_URI;
-const options = {};
+const options = {
+  serverSelectionTimeoutMS: 3000,
+  connectTimeoutMS: 3000,
+  socketTimeoutMS: 4000,
+};
 
 let client: MongoClient;
 let clientPromise: Promise<MongoClient> | null = null;
 
-if (uri) {
+function createClientPromise(): Promise<MongoClient> | null {
+  if (!uri) return null;
+
   if (process.env.NODE_ENV === "development") {
-    // In development mode, use a global variable so that the value
-    // is preserved across module reloads caused by HMR (Hot Module Replacement).
     let globalWithMongo = global as typeof globalThis & {
       _mongoClientPromise?: Promise<MongoClient>;
     };
 
     if (!globalWithMongo._mongoClientPromise) {
       client = new MongoClient(uri, options);
-      globalWithMongo._mongoClientPromise = client.connect();
+      globalWithMongo._mongoClientPromise = client.connect().catch((err) => {
+        // Reset promise on error so subsequent requests can retry
+        globalWithMongo._mongoClientPromise = undefined;
+        throw err;
+      });
     }
-    clientPromise = globalWithMongo._mongoClientPromise;
+    return globalWithMongo._mongoClientPromise;
   } else {
-    // In production mode, it's best to not use a global variable.
     client = new MongoClient(uri, options);
-    clientPromise = client.connect();
+    return client.connect();
   }
 }
 
-// Export a module-scoped MongoClient promise. By doing this in a
-// separate module, the client can be shared across functions.
+clientPromise = createClientPromise();
+
 export default clientPromise;
 
-export async function getDb() {
-  if (!clientPromise) {
+export async function getDb(): Promise<Db> {
+  const currentPromise = clientPromise || createClientPromise();
+  if (!currentPromise) {
     throw new Error('Invalid/Missing environment variable: "MONGODB_URI"');
   }
-  const client = await clientPromise;
+  const client = await currentPromise;
   const dbName = process.env.MONGODB_DB || "aletsch_ai";
   return client.db(dbName);
 }
+
+export async function getDbOrNull(): Promise<Db | null> {
+  try {
+    return await getDb();
+  } catch (error) {
+    console.warn("MongoDB connection failed or unavailable, using fallback:", (error as any)?.message || error);
+    return null;
+  }
+}
+

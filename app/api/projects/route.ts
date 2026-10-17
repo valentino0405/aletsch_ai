@@ -1,7 +1,17 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import { getDb } from "@/lib/mongodb";
+import { getDbOrNull } from "@/lib/mongodb";
+import { fallbackStore } from "@/lib/fallback-store";
+import { connectRepository, ConnectError } from "@/lib/connect-repository";
 
+/**
+ * POST /api/projects
+ *
+ * Creating a project *is* connecting a repository — this route and
+ * POST /api/repositories run the identical pipeline, so a project added
+ * here gets the same GitHub metadata and the same background analysis as
+ * one added from the Repositories page.
+ */
 export async function POST(req: Request) {
   try {
     const { userId } = await auth();
@@ -9,41 +19,40 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { name, repositoryUrl, branch } = await req.json();
-    if (!name || !repositoryUrl) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+    const body = await req.json().catch(() => ({}));
+    const repositoryUrl = body.repositoryUrl;
+    if (!repositoryUrl || typeof repositoryUrl !== "string") {
+      return NextResponse.json({ error: "A GitHub repository URL is required." }, { status: 400 });
     }
 
-    // Attempt MongoDB insertion if URI is present
-    if (process.env.MONGODB_URI) {
-      const db = await getDb();
-      const projectDoc = {
-        name,
-        repositoryUrl,
-        branch: branch || "main",
-        ownerId: userId,
-        status: "Connected",
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
+    const db = await getDbOrNull();
+    const result = await connectRepository({
+      db,
+      userId,
+      repositoryUrl,
+      branch: typeof body.branch === "string" ? body.branch : undefined,
+      name: typeof body.name === "string" ? body.name : undefined,
+    });
 
-      const result = await db.collection("projects").insertOne(projectDoc);
-      return NextResponse.json({
-        success: true,
-        id: result.insertedId.toString(),
-        message: "Project connected successfully in MongoDB Atlas.",
-      });
-    }
-
-    // Graceful fallback if MongoDB is not configured
     return NextResponse.json({
       success: true,
-      id: "mock_" + Math.random().toString(36).substr(2, 9),
-      message: "Project created in demo fallback mode (MONGODB_URI missing).",
+      id: result.projectId,
+      name: result.name,
+      repositoryUrl: result.repositoryUrl,
+      branch: result.branch,
+      language: result.language,
+      isPrivate: result.isPrivate,
+      branches: result.branches,
+      reconnected: result.reconnected,
+      analysisStarted: result.analysisStarted,
+      message: result.message,
     });
   } catch (error: any) {
-    console.error("API error:", error);
-    return NextResponse.json({ error: error.message || "Server Error" }, { status: 500 });
+    if (error instanceof ConnectError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+    console.error("Projects POST error:", error);
+    return NextResponse.json({ error: error?.message || "Server Error" }, { status: 500 });
   }
 }
 
@@ -54,27 +63,72 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    if (process.env.MONGODB_URI) {
-      const db = await getDb();
-      const projects = await db.collection("projects").find({ ownerId: userId }).toArray();
-      return NextResponse.json(projects);
+    const db = await getDbOrNull();
+    if (db) {
+      const projects = await db
+        .collection("projects")
+        .find({ ownerId: userId })
+        .sort({ updatedAt: -1 })
+        .toArray();
+
+      // Event and session counts are read from what was actually
+      // ingested. A project with no traffic reports zero rather than
+      // inheriting a number from somewhere else.
+      const projectIds = projects.map((project) => project._id.toString());
+      const [eventCounts, userCounts] = await Promise.all([
+        db
+          .collection("events")
+          .aggregate([
+            { $match: { projectId: { $in: projectIds } } },
+            { $group: { _id: "$projectId", count: { $sum: 1 } } },
+          ])
+          .toArray(),
+        db
+          .collection("events")
+          .aggregate([
+            { $match: { projectId: { $in: projectIds } } },
+            // `userId` on an event document is the tracked end user of
+            // the developer's app, not an Aletsch account.
+            { $group: { _id: { projectId: "$projectId", user: "$userId" } } },
+            { $group: { _id: "$_id.projectId", count: { $sum: 1 } } },
+          ])
+          .toArray(),
+      ]);
+
+      const eventsByProject = new Map(eventCounts.map((row: any) => [row._id, row.count]));
+      const usersByProject = new Map(userCounts.map((row: any) => [row._id, row.count]));
+
+      return NextResponse.json(
+        projects.map((project) => {
+          const id = project._id.toString();
+          return {
+            ...project,
+            _id: id,
+            eventCount: eventsByProject.get(id) ?? 0,
+            userCount: usersByProject.get(id) ?? 0,
+          };
+        })
+      );
     }
 
-    // Default mock project return if MongoDB is not configured
-    return NextResponse.json([
-      {
-        _id: "demo_1",
-        name: "TaskFlow Pro",
-        repositoryUrl: "github.com/example/taskflow",
-        branch: "main",
-        ownerId: userId,
-        status: "Connected",
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-    ]);
+    const fallbackProjects = fallbackStore.getProjects(userId);
+    return NextResponse.json(
+      fallbackProjects.map((project) => ({
+        _id: project.id,
+        name: project.name,
+        repositoryUrl: project.repositoryUrl,
+        branch: project.branch,
+        language: project.language,
+        ownerId: project.ownerId,
+        status: project.status,
+        eventCount: 0,
+        userCount: 0,
+        createdAt: project.createdAt,
+        updatedAt: project.updatedAt,
+      }))
+    );
   } catch (error: any) {
-    console.error("API error:", error);
-    return NextResponse.json({ error: error.message || "Server Error" }, { status: 500 });
+    console.error("Projects GET error:", error);
+    return NextResponse.json({ error: error?.message || "Server Error" }, { status: 500 });
   }
 }

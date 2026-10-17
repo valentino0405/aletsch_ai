@@ -55,3 +55,39 @@ export interface Insight {
   recommendation?: string;
   createdAt: string;
 }
+
+export interface AnalysisJob {
+  _id?: string;
+  projectId: string;
+  status: "queued" | "running" | "completed" | "failed";
+  progress: number;
+  currentStep: string;
+  startedAt: string;
+  completedAt?: string;
+  error?: string;
+}
+
+export interface Alert {
+  _id?: string;
+  projectId: string;
+  title: string;
+  description: string;
+  severity: "Critical" | "Warning";
+  category: string;
+  time: string;
+  createdAt: string;
+}
+
+export interface UserSession {
+  _id?: string;
+  sessionId: string;
+  projectId: string;
+  userId: string; // or anonymousId
+  anonymousId?: string;
+  startedAt: string;
+  lastActivityAt: string;
+  eventCount: number;
+  entryPath?: string;
+  exitPath?: string;
+}
+

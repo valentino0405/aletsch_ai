@@ -1,38 +1,33 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import DashboardLayout from "@/components/navigation/DashboardLayout";
-import { BellRing, AlertTriangle, AlertCircle, Sparkles } from "lucide-react";
+import { BellRing, AlertTriangle, Loader2 } from "lucide-react";
 
 export default function Alerts() {
-  const alerts = [
-    {
-      id: "1",
-      title: "High drop-off detected",
-      description: "Onboarding funnel conversion dropped by 12% between Sign Up and Login steps.",
-      severity: "Critical",
-      category: "Funnel Analysis",
-      time: "32m ago",
-      colorClass: "border-rose-500/30 bg-rose-500/5 text-rose-400 glow-rose",
-    },
-    {
-      id: "2",
-      title: "Event volume spike",
-      description: "Event 'repository_connected' triggered 4x more frequently than typical hourly average.",
-      severity: "Warning",
-      category: "Telemetry Engine",
-      time: "1h ago",
-      colorClass: "border-amber-500/30 bg-amber-500/5 text-amber-400 glow-amber",
-    },
-    {
-      id: "3",
-      title: "Instrumentation issues",
-      description: "Code injection handler failed in Checkout.tsx on layout render hooks.",
-      severity: "Warning",
-      category: "Telemetry Engine",
-      time: "3h ago",
-      colorClass: "border-amber-500/30 bg-amber-500/5 text-amber-400 glow-amber",
-    },
-  ];
+  const [alerts, setAlerts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const acknowledge = (id: string) => {
+    setAlerts((current) => current.filter((alert) => alert.id !== id));
+  };
+
+  useEffect(() => {
+    async function loadAlerts() {
+      try {
+        const res = await fetch("/api/alerts");
+        if (res.ok) {
+          const json = await res.json();
+          setAlerts(json);
+        }
+      } catch (err) {
+        console.error("Failed to load alerts:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadAlerts();
+  }, []);
 
   return (
     <DashboardLayout>
@@ -48,7 +43,15 @@ export default function Alerts() {
         </div>
 
         <div className="space-y-4">
-          {alerts.map((al) => (
+          {loading ? (
+            <div className="flex items-center justify-center gap-2 py-16 text-sm text-zinc-500">
+              <Loader2 size={16} className="animate-spin" /> Loading alerts...
+            </div>
+          ) : alerts.length === 0 ? (
+            <div className="glow-card rounded-xl p-10 text-center text-sm text-zinc-500">
+              No active alerts.
+            </div>
+          ) : alerts.map((al) => (
             <div
               key={al.id}
               className={`glow-card rounded-xl p-5 border relative overflow-hidden flex flex-col sm:flex-row justify-between gap-4 ${al.colorClass}`}
@@ -73,7 +76,7 @@ export default function Alerts() {
 
               <div className="text-right self-end sm:self-start">
                 <span className="text-xs text-zinc-500 font-semibold block">{al.time}</span>
-                <button className="text-xs text-indigo-400 hover:text-indigo-300 font-semibold mt-3 cursor-pointer">
+                  <button onClick={() => acknowledge(al.id)} className="text-xs text-indigo-400 hover:text-indigo-300 font-semibold mt-3 cursor-pointer">
                   Acknowledge
                 </button>
               </div>
