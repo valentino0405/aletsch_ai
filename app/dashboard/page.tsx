@@ -1,9 +1,10 @@
 "use client";
 
 import { useUser } from "@clerk/nextjs";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import DashboardLayout from "@/components/navigation/DashboardLayout";
+import { motion, AnimatePresence, useInView, useMotionValue, useSpring } from "framer-motion";
 import {
   Users as UsersIcon,
   Activity,
@@ -22,6 +23,7 @@ import {
   FolderOpen,
   BarChart3,
   Loader2,
+  RefreshCw,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────
@@ -40,8 +42,6 @@ interface TrendDelta {
 }
 
 interface HealthSignal {
-  // "off" is distinct from "idle": idle means the subsystem works but
-  // has nothing to do yet, off means it was never configured.
   state: "ok" | "idle" | "degraded" | "off";
   detail: string;
 }
@@ -116,14 +116,12 @@ interface DashboardData {
   };
 }
 
-/** The ranges /api/dashboard accepts. The key is sent; the label is shown. */
 const DATE_RANGES: { key: string; label: string }[] = [
   { key: "1d", label: "Today" },
   { key: "7d", label: "Last 7 days" },
   { key: "30d", label: "Last 30 days" },
 ];
 
-/** Matches the tone used on the Projects, Repositories and analytics pages. */
 function statusStyle(status: string): string {
   const value = (status || "").toLowerCase();
   if (value === "ready" || value === "synced" || value === "connected") {
@@ -136,14 +134,12 @@ function statusStyle(status: string): string {
   return "text-zinc-400 bg-zinc-800/60 border-zinc-800";
 }
 
-/** "owner/repo" from a GitHub URL, falling back to the URL without its scheme. */
 function repositoryLabel(url?: string): string {
   if (!url) return "No repository";
   const match = url.match(/github\.com[/:]([^/]+\/[^/.]+)/i);
   return match ? match[1] : url.replace(/^https?:\/\//, "");
 }
 
-/** Tone for a subsystem signal. "idle" is not a failure — it means no work yet. */
 const HEALTH_TONE: Record<string, { dot: string; text: string }> = {
   ok: { dot: "bg-emerald-400", text: "text-emerald-400" },
   idle: { dot: "bg-zinc-600", text: "text-zinc-500" },
@@ -151,11 +147,100 @@ const HEALTH_TONE: Record<string, { dot: string; text: string }> = {
   off: { dot: "bg-zinc-700", text: "text-zinc-600" },
 };
 
+// ── Animated number counter ──────────────────────────────────────
+function AnimatedNumber({ value }: { value: string }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const inView = useInView(ref, { once: true });
+  const motionVal = useMotionValue(0);
+  const spring = useSpring(motionVal, { stiffness: 80, damping: 18 });
+  const [display, setDisplay] = useState("0");
+
+  // If value is numeric, animate to it; otherwise just show the string
+  const numericVal = parseFloat(value.replace(/,/g, ""));
+  const isNumeric = !isNaN(numericVal);
+
+  useEffect(() => {
+    if (inView && isNumeric) {
+      motionVal.set(numericVal);
+    }
+  }, [inView, isNumeric, numericVal, motionVal]);
+
+  useEffect(() => {
+    return spring.on("change", (v) => {
+      const rounded = Math.round(v);
+      setDisplay(rounded >= 1000 ? rounded.toLocaleString() : String(rounded));
+    });
+  }, [spring]);
+
+  if (!isNumeric) return <span ref={ref}>{value}</span>;
+  return <span ref={ref}>{inView ? display : "0"}</span>;
+}
+
+// ── Spotlight card (cursor glow effect) ──────────────────────────
+function SpotlightCard({
+  children,
+  className = "",
+  glowColor = "rgba(99,102,241,0.12)",
+}: {
+  children: React.ReactNode;
+  className?: string;
+  glowColor?: string;
+}) {
+  const divRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState({ x: 0, y: 0 });
+  const [hovered, setHovered] = useState(false);
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = divRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    setPos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+  };
+
+  return (
+    <div
+      ref={divRef}
+      className={`glow-card rounded-xl relative overflow-hidden ${className}`}
+      onMouseMove={handleMouseMove}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      {hovered && (
+        <div
+          className="pointer-events-none absolute inset-0 rounded-xl transition-opacity duration-300"
+          style={{
+            background: `radial-gradient(350px circle at ${pos.x}px ${pos.y}px, ${glowColor}, transparent 70%)`,
+          }}
+        />
+      )}
+      {children}
+    </div>
+  );
+}
+
+// ── Skeleton loader ──────────────────────────────────────────────
+function SkeletonCard({ className = "" }: { className?: string }) {
+  return (
+    <div className={`glow-card rounded-xl p-5 shimmer ${className}`}>
+      <div className="h-3 w-1/3 rounded bg-zinc-800/80 mb-4" />
+      <div className="h-7 w-1/2 rounded bg-zinc-800/60 mb-2" />
+      <div className="h-2 w-2/3 rounded bg-zinc-800/40" />
+    </div>
+  );
+}
+
+// ── Main container animation variants ───────────────────────────
+const containerVariants = {
+  hidden: {},
+  show: { transition: { staggerChildren: 0.07 } },
+};
+const itemVariants = {
+  hidden: { opacity: 0, y: 22 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.5, ease: "easeOut" as const } },
+};
+
+// ── Dashboard Component ──────────────────────────────────────────
 export default function Dashboard() {
   const { user, isLoaded } = useUser();
-  // Holds the range *key* ("7d"), which is what the API accepts. This used to
-  // hold a display label that was never sent anywhere, so changing the range
-  // relabelled the button without changing a single number on the page.
   const [rangeKey, setRangeKey] = useState("7d");
   const [showRangeDropdown, setShowRangeDropdown] = useState(false);
   const [data, setData] = useState<DashboardData | null>(null);
@@ -166,8 +251,8 @@ export default function Dashboard() {
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
   const [projects, setProjects] = useState<ProjectMeta[]>([]);
   const [showProjectDropdown, setShowProjectDropdown] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  // Fetch all data for the selected project
   const fetchAll = useCallback(
     async (projectId?: string, range?: string) => {
       setLoading(true);
@@ -188,7 +273,6 @@ export default function Dashboard() {
         if (dashRes.ok) {
           const dashData = await dashRes.json();
           setData(dashData);
-          // Bootstrap project list from first response
           if (dashData.projects?.length > 0) {
             setProjects(dashData.projects);
             if (!pid && dashData.projects[0]) {
@@ -214,44 +298,32 @@ export default function Dashboard() {
     [selectedProjectId, rangeKey]
   );
 
-  // Initial load. fetchAll is stable for the empty selection it reads here;
-  // later loads are driven explicitly by the project and range handlers.
   useEffect(() => {
     fetchAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [refreshKey]);
 
-  // Re-fetch when project changes
   const handleProjectSelect = (proj: ProjectMeta) => {
     setSelectedProjectId(proj.id);
     setShowProjectDropdown(false);
     fetchAll(proj.id);
   };
 
-  // Re-fetch when the range changes, so the label and the numbers agree.
   const handleRangeSelect = (key: string) => {
     setRangeKey(key);
     setShowRangeDropdown(false);
     fetchAll(undefined, key);
   };
 
-  const rangeLabel =
-    DATE_RANGES.find((entry) => entry.key === rangeKey)?.label ?? "Last 7 days";
-
+  const rangeLabel = DATE_RANGES.find((entry) => entry.key === rangeKey)?.label ?? "Last 7 days";
   const selectedProject = projects.find((p) => p.id === selectedProjectId) || data?.selectedProject || null;
 
-  // Trend labels and sparklines come from /api/dashboard, which measures the
-  // selected range against the equally-long window before it. Nothing here is
-  // illustrative: with no events the series is flat and the label says so.
   const trends = data?.trends;
   const rangeDays = data?.range?.days ?? 7;
   const flatSeries = Array.from({ length: rangeDays }, () => 0);
   const userSpark = trends?.userSparkline?.length ? trends.userSparkline : flatSeries;
   const eventSpark = trends?.eventSparkline?.length ? trends.eventSparkline : flatSeries;
 
-  // `change` is only paired with a trend arrow when a delta was actually
-  // measured. The other three cards carry a plain caption instead — an
-  // upward arrow next to "Auto-detected" would imply a rise nobody computed.
   const metrics = [
     {
       title: "Total Users",
@@ -261,8 +333,9 @@ export default function Dashboard() {
       icon: UsersIcon,
       colorClass: "text-indigo-400",
       bgClass: "bg-indigo-500/10",
-      glowClass: "glow-indigo",
+      glowColor: "rgba(99,102,241,0.15)",
       sparkline: userSpark,
+      accent: "#6366f1",
     },
     {
       title: "Events Tracked",
@@ -272,8 +345,9 @@ export default function Dashboard() {
       icon: Activity,
       colorClass: "text-purple-400",
       bgClass: "bg-purple-500/10",
-      glowClass: "glow-purple",
+      glowColor: "rgba(168,85,247,0.15)",
       sparkline: eventSpark,
+      accent: "#a855f7",
     },
     {
       title: "Repos Connected",
@@ -283,8 +357,9 @@ export default function Dashboard() {
       icon: GitBranch,
       colorClass: "text-cyan-400",
       bgClass: "bg-cyan-500/10",
-      glowClass: "glow-cyan",
+      glowColor: "rgba(6,182,212,0.15)",
       sparkline: flatSeries.map(() => data?.reposConnected ?? 0),
+      accent: "#06b6d4",
     },
     {
       title: "Interactions",
@@ -294,27 +369,26 @@ export default function Dashboard() {
       icon: MousePointerClick,
       colorClass: "text-emerald-400",
       bgClass: "bg-emerald-500/10",
-      glowClass: "glow-emerald",
+      glowColor: "rgba(16,185,129,0.15)",
       sparkline: flatSeries.map(() => data?.componentsDetected ?? 0),
+      accent: "#10b981",
     },
     {
       title: "At Risk Drop-offs",
       value: String(data?.atRiskDropoffs ?? "0"),
-      change:
-        data?.funnelMeta?.largestDropoff
-          ? `Worst: ${data.funnelMeta.largestDropoff.rate.toFixed(1)}%`
-          : "None measured",
+      change: data?.funnelMeta?.largestDropoff
+        ? `Worst: ${data.funnelMeta.largestDropoff.rate.toFixed(1)}%`
+        : "None measured",
       direction: null,
       icon: AlertTriangle,
       colorClass: "text-rose-400",
       bgClass: "bg-rose-500/10",
-      glowClass: "glow-rose",
+      glowColor: "rgba(244,63,94,0.15)",
       sparkline: flatSeries.map(() => data?.atRiskDropoffs ?? 0),
+      accent: "#f43f5e",
     },
   ];
 
-  // Real instrumentation coverage. A component counts as instrumented
-  // only when an applied plan covers its file — see /api/instrumentation.
   const detectedComponents = Array.isArray(components) ? components : [];
   const instrumentedComponents = detectedComponents.filter((c) => c.instrumented);
   const pendingComponents = detectedComponents.filter((c) => c.status === "Pending review");
@@ -322,46 +396,36 @@ export default function Dashboard() {
     detectedComponents.length > 0
       ? Math.round((instrumentedComponents.length / detectedComponents.length) * 100)
       : 0;
-  const liveEventCount = instrumentedComponents.reduce(
-    (total, c) => total + (c.events?.length || 0),
-    0
-  );
+  const liveEventCount = instrumentedComponents.reduce((total, c) => total + (c.events?.length || 0), 0);
   const proposedEventCount = detectedComponents.reduce(
     (total, c) => total + (c.eventsAreLive ? 0 : c.events?.length || 0),
     0
   );
 
-  // Real funnel only. With no events there is no funnel to draw, and the
-  // panel renders an empty state instead of a placeholder journey.
   const funnelSteps = data?.funnel ?? [];
   const hasFunnel = funnelSteps.length > 0 && !data?.funnelMeta?.insufficientData;
 
   const EVENT_CATEGORY_COLOR: Record<string, string> = {
-    Pageview: "bg-indigo-500/20 text-indigo-300",
-    Interaction: "bg-purple-500/20 text-purple-300",
-    System: "bg-cyan-500/20 text-cyan-300",
-    Form: "bg-emerald-500/20 text-emerald-300",
+    Pageview: "bg-indigo-500/20 text-indigo-300 border border-indigo-500/20",
+    Interaction: "bg-purple-500/20 text-purple-300 border border-purple-500/20",
+    System: "bg-cyan-500/20 text-cyan-300 border border-cyan-500/20",
+    Form: "bg-emerald-500/20 text-emerald-300 border border-emerald-500/20",
   };
   const topEvents = (data?.topEvents ?? []).map((event) => ({
     name: event.name,
     count: event.count,
     cat: event.cat,
-    color: EVENT_CATEGORY_COLOR[event.cat] ?? "bg-zinc-500/20 text-zinc-300",
+    color: EVENT_CATEGORY_COLOR[event.cat] ?? "bg-zinc-500/20 text-zinc-300 border border-zinc-500/20",
   }));
 
   const IDLE_SIGNAL: HealthSignal = { state: "idle", detail: "Not reported" };
   const healthRows = [
     { name: "Repository Connection", signal: data?.systemHealth?.repoConnection ?? IDLE_SIGNAL },
     { name: "Event Processing", signal: data?.systemHealth?.eventProcessing ?? IDLE_SIGNAL },
-    // The AST parser and the LLM are separate subsystems that fail
-    // independently — one row for both hid a dead model behind a
-    // healthy parser.
     { name: "Code Analysis (AST)", signal: data?.systemHealth?.codeAnalysis ?? IDLE_SIGNAL },
     { name: "AI Model", signal: data?.systemHealth?.aiAnalysis ?? IDLE_SIGNAL },
     { name: "Dashboard Service", signal: data?.systemHealth?.dashboardService ?? IDLE_SIGNAL },
   ];
-  // The summary badge reflects the rows beneath it. "All systems OK" is only
-  // claimed when every subsystem actually reports ok.
   const healthSummary = healthRows.some((row) => row.signal.state === "degraded")
     ? { tone: "degraded", label: "Degraded" }
     : healthRows.every((row) => row.signal.state === "ok")
@@ -385,27 +449,62 @@ export default function Dashboard() {
     color: ACTIVITY_COLOR[entry.type] ?? "text-indigo-400",
   }));
 
+  const greetingHour = new Date().getHours();
+  const greeting = greetingHour < 12 ? "Good morning" : greetingHour < 18 ? "Good afternoon" : "Good evening";
+
   return (
     <DashboardLayout>
-      <div className="space-y-8">
+      {/* ── Ambient background mesh ── */}
+      <div className="ambient-bg" />
+
+      <div className="relative z-10 space-y-8">
+
         {/* ── Header ── */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <motion.div
+          initial={{ opacity: 0, y: -16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+          className="flex flex-col md:flex-row md:items-center justify-between gap-4"
+        >
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-white flex items-center gap-2">
-              Welcome back, {isLoaded && user ? user.firstName : "Developer"}! 👋
+            <h1 className="text-3xl font-bold tracking-tight flex items-center gap-3">
+              <span className="gradient-text">
+                {greeting},{" "}
+                {isLoaded && user ? user.firstName : "Developer"}
+              </span>
+              <motion.span
+                animate={{ rotate: [0, 14, -8, 14, 0] }}
+                transition={{ duration: 1.6, delay: 0.8, ease: "easeInOut" }}
+                className="inline-block"
+              >
+                👋
+              </motion.span>
             </h1>
-            <p className="text-sm text-zinc-400">
-              Here&apos;s what&apos;s happening with your application today.
+            <p className="text-sm text-zinc-500 mt-1">
+              Here&apos;s your project analytics at a glance.
             </p>
           </div>
 
           <div className="flex items-center gap-3">
+            {/* Refresh button */}
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setRefreshKey((k) => k + 1)}
+              className="p-2 rounded-lg border border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:text-white hover:border-zinc-700 transition"
+              title="Refresh"
+            >
+              <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+            </motion.button>
+
             {/* Project Selector */}
             <div className="relative">
-              <button
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
                 id="project-selector-btn"
                 onClick={() => setShowProjectDropdown(!showProjectDropdown)}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg border border-zinc-700 bg-zinc-900 text-xs font-semibold text-zinc-200 hover:border-indigo-500/50 hover:text-white transition min-w-[180px] justify-between"
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-zinc-700/60 bg-zinc-900/80 backdrop-blur-sm text-xs font-semibold text-zinc-200 hover:border-indigo-500/50 hover:text-white transition min-w-[180px] justify-between shadow-lg"
               >
                 <div className="flex items-center gap-2 min-w-0">
                   <FolderOpen size={13} className="text-indigo-400 shrink-0" />
@@ -415,168 +514,233 @@ export default function Dashboard() {
                       : selectedProject?.name || "Select Project"}
                   </span>
                 </div>
-                <ChevronDown
-                  size={13}
-                  className={`text-zinc-500 shrink-0 transition-transform ${showProjectDropdown ? "rotate-180" : ""}`}
-                />
-              </button>
+                <motion.div
+                  animate={{ rotate: showProjectDropdown ? 180 : 0 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  <ChevronDown size={13} className="text-zinc-500 shrink-0" />
+                </motion.div>
+              </motion.button>
 
-              {showProjectDropdown && (
-                <div className="absolute right-0 mt-2 w-56 rounded-xl border border-zinc-800 bg-zinc-950 shadow-2xl p-1 z-50">
-                  {projects.length === 0 ? (
-                    <div className="px-3 py-4 text-center text-xs text-zinc-500">
-                      No projects yet.{" "}
-                      <Link href="/projects" className="text-indigo-400 hover:underline">
-                        Add one
-                      </Link>
-                    </div>
-                  ) : (
-                    <>
-                      {projects.map((proj) => (
-                        <button
-                          key={proj.id}
-                          onClick={() => handleProjectSelect(proj)}
-                          className={`w-full text-left px-3 py-2.5 rounded-lg text-xs font-medium transition flex items-center gap-2.5 ${
-                            selectedProjectId === proj.id
-                              ? "bg-indigo-600/15 text-indigo-300 border border-indigo-500/20"
-                              : "text-zinc-300 hover:bg-zinc-900 hover:text-white"
-                          }`}
-                        >
-                          <span
-                            className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                              proj.status === "Ready"
-                                ? "bg-emerald-400"
-                                : proj.status === "Analyzing"
-                                ? "bg-indigo-400 animate-pulse"
-                                : "bg-zinc-600"
-                            }`}
-                          />
-                          <span className="truncate">{proj.name}</span>
-                          {selectedProjectId === proj.id && (
-                            <CheckCircle2 size={11} className="text-indigo-400 ml-auto shrink-0" />
-                          )}
-                        </button>
-                      ))}
-                      <div className="border-t border-zinc-800 mt-1 pt-1">
-                        <Link
-                          href="/projects"
-                          className="w-full text-left px-3 py-2 rounded-lg text-xs text-indigo-400 hover:bg-zinc-900 hover:text-indigo-300 transition flex items-center gap-2"
-                        >
-                          <Zap size={11} />
-                          Manage Projects
+              <AnimatePresence>
+                {showProjectDropdown && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -8, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -8, scale: 0.95 }}
+                    transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
+                    className="absolute right-0 mt-2 w-56 rounded-xl border border-zinc-800 bg-zinc-950/95 backdrop-blur-xl shadow-2xl p-1 z-50"
+                  >
+                    {projects.length === 0 ? (
+                      <div className="px-3 py-4 text-center text-xs text-zinc-500">
+                        No projects yet.{" "}
+                        <Link href="/projects" className="text-indigo-400 hover:underline">
+                          Add one
                         </Link>
                       </div>
-                    </>
-                  )}
-                </div>
-              )}
+                    ) : (
+                      <>
+                        {projects.map((proj, i) => (
+                          <motion.button
+                            key={proj.id}
+                            initial={{ opacity: 0, x: -8 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ delay: i * 0.04 }}
+                            onClick={() => handleProjectSelect(proj)}
+                            className={`w-full text-left px-3 py-2.5 rounded-lg text-xs font-medium transition flex items-center gap-2.5 ${
+                              selectedProjectId === proj.id
+                                ? "bg-indigo-600/15 text-indigo-300 border border-indigo-500/20"
+                                : "text-zinc-300 hover:bg-zinc-900 hover:text-white"
+                            }`}
+                          >
+                            <span
+                              className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                                proj.status === "Ready"
+                                  ? "bg-emerald-400"
+                                  : proj.status === "Analyzing"
+                                  ? "bg-indigo-400 animate-pulse"
+                                  : "bg-zinc-600"
+                              }`}
+                            />
+                            <span className="truncate">{proj.name}</span>
+                            {selectedProjectId === proj.id && (
+                              <CheckCircle2 size={11} className="text-indigo-400 ml-auto shrink-0" />
+                            )}
+                          </motion.button>
+                        ))}
+                        <div className="border-t border-zinc-800 mt-1 pt-1">
+                          <Link
+                            href="/projects"
+                            className="w-full text-left px-3 py-2 rounded-lg text-xs text-indigo-400 hover:bg-zinc-900 hover:text-indigo-300 transition flex items-center gap-2"
+                          >
+                            <Zap size={11} />
+                            Manage Projects
+                          </Link>
+                        </div>
+                      </>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
 
-            {/* Date range picker. Only the ranges /api/dashboard can actually
-                measure are offered — a "Custom range" option used to sit here
-                with nothing behind it. */}
+            {/* Date range picker */}
             <div className="relative">
-              <button
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
                 onClick={() => setShowRangeDropdown(!showRangeDropdown)}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg border border-zinc-800/80 bg-zinc-950/40 text-xs font-semibold text-zinc-300 hover:text-white transition cursor-pointer"
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-zinc-800/80 bg-zinc-950/60 backdrop-blur-sm text-xs font-semibold text-zinc-300 hover:text-white transition shadow-lg"
               >
                 <Calendar size={13} className="text-indigo-400" />
                 <span>{rangeLabel}</span>
-                <ChevronDown
-                  size={13}
-                  className={`text-zinc-500 transition-transform ${showRangeDropdown ? "rotate-180" : ""}`}
-                />
-              </button>
-              {showRangeDropdown && (
-                <div className="absolute right-0 mt-2 w-48 rounded-lg border border-zinc-800 bg-zinc-950 shadow-2xl p-1 z-50">
-                  {DATE_RANGES.map((range) => (
-                    <button
-                      key={range.key}
-                      onClick={() => handleRangeSelect(range.key)}
-                      className={`w-full text-left px-3 py-2 rounded-md text-xs transition flex items-center gap-2 cursor-pointer ${
-                        rangeKey === range.key
-                          ? "bg-indigo-600/15 text-indigo-300"
-                          : "hover:bg-zinc-900 text-zinc-300 hover:text-white"
-                      }`}
-                    >
-                      <span className="truncate">{range.label}</span>
-                      {rangeKey === range.key && (
-                        <CheckCircle2 size={11} className="text-indigo-400 ml-auto shrink-0" />
-                      )}
-                    </button>
-                  ))}
-                </div>
-              )}
+                <motion.div animate={{ rotate: showRangeDropdown ? 180 : 0 }} transition={{ duration: 0.2 }}>
+                  <ChevronDown size={13} className="text-zinc-500" />
+                </motion.div>
+              </motion.button>
+              <AnimatePresence>
+                {showRangeDropdown && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -8, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -8, scale: 0.95 }}
+                    transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
+                    className="absolute right-0 mt-2 w-48 rounded-xl border border-zinc-800 bg-zinc-950/95 backdrop-blur-xl shadow-2xl p-1 z-50"
+                  >
+                    {DATE_RANGES.map((range, i) => (
+                      <motion.button
+                        key={range.key}
+                        initial={{ opacity: 0, x: -8 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: i * 0.04 }}
+                        onClick={() => handleRangeSelect(range.key)}
+                        className={`w-full text-left px-3 py-2 rounded-md text-xs transition flex items-center gap-2 cursor-pointer ${
+                          rangeKey === range.key
+                            ? "bg-indigo-600/15 text-indigo-300"
+                            : "hover:bg-zinc-900 text-zinc-300 hover:text-white"
+                        }`}
+                      >
+                        <span className="truncate">{range.label}</span>
+                        {rangeKey === range.key && (
+                          <CheckCircle2 size={11} className="text-indigo-400 ml-auto shrink-0" />
+                        )}
+                      </motion.button>
+                    ))}
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           </div>
-        </div>
+        </motion.div>
 
         {/* Selected project badge */}
-        {selectedProject && (
-          <div className="flex items-center gap-3 px-4 py-2.5 rounded-xl border border-zinc-800/60 bg-zinc-900/40 w-fit">
-            <div className="flex items-center gap-2 text-xs text-zinc-400">
-              <BarChart3 size={13} className="text-indigo-400" />
-              <span>Viewing analytics for</span>
-              <span className="font-bold text-white">{selectedProject.name}</span>
-            </div>
-            <span className="text-[10px] font-mono text-zinc-600 border border-zinc-800 rounded px-1.5 py-0.5 truncate max-w-[200px]">
-              {repositoryLabel(selectedProject.repositoryUrl)}
-            </span>
-            <span
-              className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${statusStyle(
-                selectedProject.status || ""
-              )}`}
+        <AnimatePresence>
+          {selectedProject && (
+            <motion.div
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              className="flex items-center gap-3 px-4 py-2.5 rounded-xl border border-zinc-800/60 bg-zinc-900/40 w-fit backdrop-blur-sm"
             >
-              {selectedProject.status || "Connected"}
-            </span>
-          </div>
-        )}
+              <div className="flex items-center gap-2 text-xs text-zinc-400">
+                <BarChart3 size={13} className="text-indigo-400" />
+                <span>Viewing analytics for</span>
+                <span className="font-bold text-white">{selectedProject.name}</span>
+              </div>
+              <span className="text-[10px] font-mono text-zinc-600 border border-zinc-800 rounded px-1.5 py-0.5 truncate max-w-[200px]">
+                {repositoryLabel(selectedProject.repositoryUrl)}
+              </span>
+              <span
+                className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${statusStyle(
+                  selectedProject.status || ""
+                )}`}
+              >
+                {selectedProject.status || "Connected"}
+              </span>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-        {loadError && (
-          <div className="flex items-center gap-2 rounded-lg border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-xs text-rose-300">
-            <AlertTriangle size={13} className="shrink-0" />
-            {loadError}
-          </div>
-        )}
+        {/* Error / storage warning banners */}
+        <AnimatePresence>
+          {loadError && (
+            <motion.div
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              className="flex items-center gap-2 rounded-xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-xs text-rose-300 backdrop-blur-sm"
+            >
+              <AlertTriangle size={13} className="shrink-0" />
+              {loadError}
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {data?.storage === "in-memory" && (
-          <div className="flex items-center gap-2 rounded-lg border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-xs text-amber-300">
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="flex items-center gap-2 rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-xs text-amber-300 backdrop-blur-sm"
+          >
             <AlertTriangle size={13} className="shrink-0" />
-            No database is configured, so this workspace is held in memory and will be lost when the
-            server restarts.
-          </div>
+            No database is configured, so this workspace is held in memory and will be lost when the server restarts.
+          </motion.div>
         )}
 
-        {/* No project selected / no projects state */}
+        {/* No project empty state */}
         {!loading && projects.length === 0 && (
-          <div className="glow-card rounded-xl p-10 text-center">
-            <FolderOpen size={36} className="mx-auto text-zinc-600 mb-4" />
-            <h3 className="text-sm font-bold text-white mb-2">No Projects Connected</h3>
-            <p className="text-xs text-zinc-500 mb-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.97 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.4 }}
+            className="glow-card rounded-2xl p-14 text-center"
+          >
+            <motion.div animate={{ y: [0, -6, 0] }} transition={{ duration: 3, repeat: Infinity }}>
+              <FolderOpen size={44} className="mx-auto text-zinc-700 mb-5" />
+            </motion.div>
+            <h3 className="text-base font-bold text-white mb-2">No Projects Connected</h3>
+            <p className="text-xs text-zinc-500 mb-6">
               Connect a GitHub repository to start tracking analytics.
             </p>
-            <Link
-              href="/projects"
-              className="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-xs font-semibold transition"
-            >
-              <Zap size={12} />
-              Connect Your First Project
-            </Link>
-          </div>
+            <motion.div whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }}>
+              <Link
+                href="/projects"
+                className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2.5 rounded-xl text-xs font-semibold transition shadow-lg shadow-indigo-600/30"
+              >
+                <Zap size={13} />
+                Connect Your First Project
+              </Link>
+            </motion.div>
+          </motion.div>
         )}
 
+        {/* Loading skeletons */}
         {loading && (
-          <div className="flex items-center gap-3 text-zinc-500 py-8 justify-center">
-            <Loader2 size={18} className="animate-spin text-indigo-400" />
-            <span className="text-sm">Loading project analytics...</span>
-          </div>
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <SkeletonCard key={i} />
+              ))}
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <SkeletonCard className="lg:col-span-2 h-64" />
+              <SkeletonCard className="h-64" />
+            </div>
+          </motion.div>
         )}
 
+        {/* ── Main dashboard content ── */}
         {!loading && projects.length > 0 && (
-          <>
+          <motion.div
+            key={refreshKey}
+            variants={containerVariants}
+            initial="hidden"
+            animate="show"
+            className="space-y-6"
+          >
             {/* ── Metric Cards ── */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-              {metrics.map((metric) => {
+              {metrics.map((metric, idx) => {
                 const Icon = metric.icon;
                 const maxVal = Math.max(...metric.sparkline);
                 const minVal = Math.min(...metric.sparkline);
@@ -590,110 +754,166 @@ export default function Dashboard() {
                   .join(" ");
 
                 return (
-                  <div
-                    key={metric.title}
-                    className={`glow-card rounded-xl p-4 flex flex-col justify-between overflow-hidden relative ${metric.glowClass}`}
-                  >
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="text-xs text-zinc-400 font-medium">{metric.title}</span>
-                      <div className={`p-1.5 rounded-lg ${metric.bgClass} ${metric.colorClass}`}>
-                        <Icon size={14} />
-                      </div>
-                    </div>
-                    <div>
-                      <h3 className="text-xl font-bold text-white tracking-tight">{metric.value}</h3>
-                      <div className="flex items-center gap-1 mt-1">
-                        {metric.direction === "up" && (
-                          <TrendingUp size={12} className="text-emerald-400" />
-                        )}
-                        {metric.direction === "down" && (
-                          <TrendingDown size={12} className="text-rose-400" />
-                        )}
-                        <span
-                          className={`text-[10px] font-semibold ${
-                            metric.direction === "up"
-                              ? "text-emerald-400"
-                              : metric.direction === "down"
-                              ? "text-rose-400"
-                              : "text-zinc-500"
-                          }`}
-                        >
-                          {metric.change}
+                  <motion.div key={metric.title} variants={itemVariants}>
+                    <SpotlightCard
+                      glowColor={metric.glowColor}
+                      className="p-5 flex flex-col justify-between overflow-hidden h-full"
+                    >
+                      <div className="flex items-center justify-between mb-4">
+                        <span className="text-xs text-zinc-400 font-medium tracking-wide">
+                          {metric.title}
                         </span>
+                        <motion.div
+                          whileHover={{ scale: 1.15, rotate: 5 }}
+                          className={`p-2 rounded-xl ${metric.bgClass} ${metric.colorClass}`}
+                        >
+                          <Icon size={14} />
+                        </motion.div>
                       </div>
-                    </div>
-                    <div className="h-10 mt-3 -mx-4 -mb-4 overflow-hidden relative opacity-60">
-                      <svg className="w-full h-full" viewBox="0 0 100 40" preserveAspectRatio="none">
-                        <path
-                          d={pathData}
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.5"
-                          className={metric.colorClass}
-                        />
-                      </svg>
-                    </div>
-                  </div>
+                      <div>
+                        <h3 className={`text-2xl font-black text-white tracking-tight ${metric.colorClass}`}>
+                          <AnimatedNumber value={metric.value} />
+                        </h3>
+                        <div className="flex items-center gap-1.5 mt-1.5">
+                          {metric.direction === "up" && (
+                            <motion.div
+                              animate={{ y: [0, -2, 0] }}
+                              transition={{ duration: 1.5, repeat: Infinity }}
+                            >
+                              <TrendingUp size={11} className="text-emerald-400" />
+                            </motion.div>
+                          )}
+                          {metric.direction === "down" && (
+                            <motion.div
+                              animate={{ y: [0, 2, 0] }}
+                              transition={{ duration: 1.5, repeat: Infinity }}
+                            >
+                              <TrendingDown size={11} className="text-rose-400" />
+                            </motion.div>
+                          )}
+                          <span
+                            className={`text-[10px] font-semibold ${
+                              metric.direction === "up"
+                                ? "text-emerald-400"
+                                : metric.direction === "down"
+                                ? "text-rose-400"
+                                : "text-zinc-500"
+                            }`}
+                          >
+                            {metric.change}
+                          </span>
+                        </div>
+                      </div>
+                      {/* Animated sparkline */}
+                      <div className="h-10 mt-3 -mx-5 -mb-5 overflow-hidden relative opacity-60">
+                        <svg className="w-full h-full" viewBox="0 0 100 40" preserveAspectRatio="none">
+                          <defs>
+                            <linearGradient id={`spark-${idx}`} x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor={metric.accent} stopOpacity="0.3" />
+                              <stop offset="100%" stopColor={metric.accent} stopOpacity="0" />
+                            </linearGradient>
+                          </defs>
+                          <path
+                            d={pathData + ` L 100 40 L 0 40 Z`}
+                            fill={`url(#spark-${idx})`}
+                          />
+                          <path
+                            d={pathData}
+                            fill="none"
+                            stroke={metric.accent}
+                            strokeWidth="1.5"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            className="animate-draw"
+                            style={{ animationDelay: `${idx * 80}ms` }}
+                          />
+                        </svg>
+                      </div>
+                    </SpotlightCard>
+                  </motion.div>
                 );
               })}
             </div>
 
-            {/* ── Analysis Summary Banner (if analysis exists) ── */}
+            {/* ── AST Analysis Banner ── */}
             {data?.analysis && (
-              <div className="glow-card rounded-xl p-5 glow-cyan border border-cyan-500/10">
-                <div className="flex flex-wrap items-center justify-between gap-4">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-lg bg-cyan-500/10 text-cyan-400">
-                      <Zap size={16} />
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-white">AST Analysis Complete</h4>
-                      <p className="text-[10px] text-zinc-500 mt-0.5">
-                        Last run:{" "}
-                        {data.analysis.completedAt
-                          ? new Date(data.analysis.completedAt).toLocaleString()
-                          : "—"}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-4">
-                    {[
-                      { label: "Files Parsed", value: data.analysis.filesParsed },
-                      { label: "Routes", value: data.analysis.routesDetected },
-                      { label: "Components", value: data.analysis.componentsDetected },
-                      { label: "Interactions", value: data.analysis.interactionsDetected },
-                    ].map(({ label, value }) => (
-                      <div key={label} className="text-center">
-                        <div className="text-base font-bold text-white">{value ?? 0}</div>
-                        <div className="text-[10px] text-zinc-500 font-semibold uppercase">{label}</div>
+              <motion.div variants={itemVariants}>
+                <SpotlightCard
+                  glowColor="rgba(6,182,212,0.12)"
+                  className="p-5 border border-cyan-500/15"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <motion.div
+                        animate={{ scale: [1, 1.08, 1] }}
+                        transition={{ duration: 2.5, repeat: Infinity }}
+                        className="p-2.5 rounded-xl bg-cyan-500/10 text-cyan-400"
+                      >
+                        <Zap size={16} />
+                      </motion.div>
+                      <div>
+                        <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                          AST Analysis Complete
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse-glow inline-block" />
+                        </h4>
+                        <p className="text-[10px] text-zinc-500 mt-0.5">
+                          Last run:{" "}
+                          {data.analysis.completedAt
+                            ? new Date(data.analysis.completedAt).toLocaleString()
+                            : "—"}
+                        </p>
                       </div>
-                    ))}
+                    </div>
+                    <div className="flex flex-wrap gap-6">
+                      {[
+                        { label: "Files Parsed", value: data.analysis.filesParsed },
+                        { label: "Routes", value: data.analysis.routesDetected },
+                        { label: "Components", value: data.analysis.componentsDetected },
+                        { label: "Interactions", value: data.analysis.interactionsDetected },
+                      ].map(({ label, value }, i) => (
+                        <motion.div
+                          key={label}
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: 0.2 + i * 0.06 }}
+                          className="text-center"
+                        >
+                          <div className="text-lg font-black text-white">
+                            <AnimatedNumber value={String(value ?? 0)} />
+                          </div>
+                          <div className="text-[9px] text-zinc-500 font-bold uppercase tracking-wider mt-0.5">
+                            {label}
+                          </div>
+                        </motion.div>
+                      ))}
+                    </div>
+                    <motion.div whileHover={{ x: 3 }}>
+                      <Link
+                        href="/instrumentation"
+                        className="text-xs font-semibold text-cyan-400 hover:text-cyan-300 flex items-center gap-1.5 transition"
+                      >
+                        View Instrumentation <ArrowRight size={13} />
+                      </Link>
+                    </motion.div>
                   </div>
-                  <Link
-                    href="/instrumentation"
-                    className="text-xs font-semibold text-cyan-400 hover:text-cyan-300 flex items-center gap-1 transition"
-                  >
-                    View Instrumentation <ArrowRight size={12} />
-                  </Link>
-                </div>
-              </div>
+                </SpotlightCard>
+              </motion.div>
             )}
 
             {/* ── Funnel & Events ── */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <motion.div variants={itemVariants} className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {/* Funnel */}
-              <div className="lg:col-span-2 glow-card rounded-xl p-6 glow-indigo relative overflow-hidden flex flex-col justify-between">
-                <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500/5 rounded-full blur-2xl" />
+              <SpotlightCard
+                glowColor="rgba(99,102,241,0.12)"
+                className="lg:col-span-2 p-6 flex flex-col"
+              >
+                <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/5 rounded-full blur-3xl pointer-events-none" />
                 <div>
                   <div className="flex items-center justify-between mb-6">
                     <div className="flex items-center gap-2">
                       <h3 className="text-sm font-bold text-white">
                         {data?.funnelMeta?.name || "User Funnel"}
                       </h3>
-                      {/* How the steps were chosen — a saved funnel is the
-                          developer's own, the others were derived from
-                          observed events. Never labelled "AI generated"
-                          unless the AI actually named the stages. */}
                       {hasFunnel && (
                         <span
                           className={`flex items-center gap-1 text-[9px] px-2 py-0.5 rounded-full font-bold ${
@@ -717,28 +937,29 @@ export default function Dashboard() {
                         </span>
                       )}
                     </div>
-                    <span className="text-[10px] text-zinc-400 font-semibold">
+                    <span className="text-[10px] text-zinc-500 font-semibold">
                       {selectedProject?.name || "All Projects"}
                     </span>
                   </div>
 
                   {!hasFunnel ? (
-                    <div className="py-12 text-center space-y-2">
-                      <BarChart3 size={28} className="mx-auto text-indigo-500/30" />
-                      <p className="text-xs font-semibold text-zinc-300">
-                        Insufficient data to determine a funnel
-                      </p>
+                    <div className="py-12 text-center space-y-3">
+                      <motion.div animate={{ y: [0, -6, 0] }} transition={{ duration: 3, repeat: Infinity }}>
+                        <BarChart3 size={32} className="mx-auto text-indigo-500/25" />
+                      </motion.div>
+                      <p className="text-xs font-semibold text-zinc-300">Insufficient data to determine a funnel</p>
                       <p className="text-[11px] text-zinc-500 max-w-sm mx-auto leading-relaxed">
-                        A funnel is built from events this project has actually emitted. Apply an
-                        instrumentation plan, then collect traffic — Aletsch will not show a placeholder
-                        journey in the meantime.
+                        A funnel is built from events this project has actually emitted. Apply an instrumentation
+                        plan, then collect traffic.
                       </p>
-                      <Link
-                        href="/instrumentation"
-                        className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-400 hover:text-indigo-300 transition pt-1"
-                      >
-                        Go to instrumentation <ArrowRight size={12} />
-                      </Link>
+                      <motion.div whileHover={{ x: 3 }} className="inline-block">
+                        <Link
+                          href="/instrumentation"
+                          className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-400 hover:text-indigo-300 transition pt-1"
+                        >
+                          Go to instrumentation <ArrowRight size={12} />
+                        </Link>
+                      </motion.div>
                     </div>
                   ) : (
                     <div className="relative py-8 flex items-center justify-between gap-2 overflow-x-auto min-w-[500px]">
@@ -762,14 +983,23 @@ export default function Dashboard() {
                         </svg>
                       </div>
                       {funnelSteps.map((step, idx: number) => (
-                        <div key={step.name} className="flex-1 flex flex-col items-center relative z-10">
+                        <motion.div
+                          key={step.name}
+                          initial={{ opacity: 0, y: 16 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: idx * 0.08, duration: 0.4 }}
+                          className="flex-1 flex flex-col items-center relative z-10"
+                        >
                           <div className="relative">
-                            <div className="w-12 h-12 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-center text-xs font-bold text-zinc-300 hover:border-indigo-500 hover:text-white transition cursor-pointer shadow-lg">
+                            <motion.div
+                              whileHover={{ scale: 1.12 }}
+                              className="w-12 h-12 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-center text-xs font-bold text-zinc-300 hover:border-indigo-500 hover:text-white transition cursor-pointer shadow-lg"
+                            >
                               {idx + 1}
-                            </div>
+                            </motion.div>
                             {step.dropFromPrevious > 0 && (
                               <div className="absolute -left-12 top-1/2 -translate-y-1/2 flex flex-col items-center">
-                                <span className="text-[9px] text-rose-500 font-bold bg-rose-500/10 px-1 rounded">
+                                <span className="text-[9px] text-rose-400 font-bold bg-rose-500/10 px-1.5 py-0.5 rounded-md border border-rose-500/20">
                                   ↓ {step.dropFromPrevious}%
                                 </span>
                               </div>
@@ -778,17 +1008,17 @@ export default function Dashboard() {
                           <span className="text-[11px] font-semibold text-zinc-300 mt-3 text-center whitespace-nowrap">
                             {step.name}
                           </span>
-                          <span className="text-[12px] font-bold text-white mt-1">{step.percent}%</span>
+                          <span className="text-[13px] font-black text-white mt-1">{step.percent}%</span>
                           <span className="text-[9px] text-zinc-500 mt-0.5">
                             {step.users} user{step.users === 1 ? "" : "s"}
                           </span>
-                        </div>
+                        </motion.div>
                       ))}
                     </div>
                   )}
                 </div>
 
-                <div className="mt-6 p-4 rounded-lg bg-zinc-950/80 border border-zinc-800/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="mt-6 p-4 rounded-xl bg-zinc-950/80 border border-zinc-800/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                   <div className="flex items-center gap-3">
                     <div
                       className={`p-2 rounded-lg ${
@@ -797,88 +1027,100 @@ export default function Dashboard() {
                           : "bg-zinc-500/10 text-zinc-400"
                       }`}
                     >
-                      <AlertTriangle size={16} />
+                      <AlertTriangle size={15} />
                     </div>
                     <div>
                       <h4 className="text-xs font-bold text-white">Top Drop-off Spot</h4>
-                      <p className="text-[10px] text-zinc-400">
+                      <p className="text-[10px] text-zinc-400 max-w-xs">
                         {data?.funnelMeta?.largestDropoff
                           ? `${data.funnelMeta.largestDropoff.rate.toFixed(1)}% of users who reached ${data.funnelMeta.largestDropoff.from} did not continue to ${data.funnelMeta.largestDropoff.to}.`
                           : "No drop-off measured yet."}
                       </p>
                     </div>
                   </div>
-                  <Link
-                    href="/funnel-analysis"
-                    className="text-xs font-semibold text-indigo-400 hover:text-indigo-300 transition flex items-center gap-1 cursor-pointer"
-                  >
-                    View Funnel Analysis <ArrowRight size={12} />
-                  </Link>
+                  <motion.div whileHover={{ x: 3 }}>
+                    <Link
+                      href="/funnel-analysis"
+                      className="text-xs font-semibold text-indigo-400 hover:text-indigo-300 transition flex items-center gap-1.5 whitespace-nowrap"
+                    >
+                      View Funnel Analysis <ArrowRight size={12} />
+                    </Link>
+                  </motion.div>
                 </div>
-              </div>
+              </SpotlightCard>
 
               {/* Top Events */}
-              <div className="glow-card rounded-xl p-6 glow-purple flex flex-col justify-between">
+              <SpotlightCard glowColor="rgba(168,85,247,0.12)" className="p-6 flex flex-col">
                 <div>
-                  <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center justify-between mb-5">
                     <h3 className="text-sm font-bold text-white">Top Tracked Events</h3>
-                    <Link
-                      href="/events"
-                      className="text-xs text-indigo-400 font-semibold hover:text-indigo-300 transition"
-                    >
-                      View All
-                    </Link>
+                    <motion.div whileHover={{ x: 2 }}>
+                      <Link href="/events" className="text-xs text-indigo-400 font-semibold hover:text-indigo-300 transition">
+                        View All
+                      </Link>
+                    </motion.div>
                   </div>
-                  {/* Only events this workspace has actually recorded. This panel
-                      used to fall back to a catalogue of plausible-looking names
-                      — Page Viewed, Button Clicked, User Logged In — which read
-                      as real events with a dash for a count. */}
                   {topEvents.length === 0 ? (
-                    <div className="py-8 text-center space-y-2">
-                      <Activity size={24} className="mx-auto text-purple-500/30" />
+                    <div className="py-10 text-center space-y-2">
+                      <motion.div animate={{ scale: [1, 1.05, 1] }} transition={{ duration: 3, repeat: Infinity }}>
+                        <Activity size={26} className="mx-auto text-purple-500/30" />
+                      </motion.div>
                       <p className="text-xs font-semibold text-zinc-300">No events recorded yet</p>
                       <p className="text-[11px] text-zinc-500 leading-relaxed">
-                        Event names appear here once your instrumented application sends its first
-                        events to the ingest endpoint.
+                        Event names appear here once your instrumented application sends its first events.
                       </p>
                     </div>
                   ) : (
-                    <div className="space-y-3">
-                      {topEvents.map((ev) => (
-                        <div
+                    <div className="space-y-2.5">
+                      {topEvents.map((ev, i) => (
+                        <motion.div
                           key={ev.name}
-                          className="flex items-center justify-between py-1.5 border-b border-zinc-900 last:border-0"
+                          initial={{ opacity: 0, x: -12 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ delay: i * 0.06 }}
+                          className="flex items-center justify-between py-2 border-b border-zinc-900/80 last:border-0 group"
                         >
                           <div className="flex items-center gap-2.5 min-w-0">
-                            <span className={`text-[9px] px-1.5 py-0.5 rounded font-mono shrink-0 ${ev.color}`}>
+                            <span className={`text-[9px] px-1.5 py-0.5 rounded-md font-mono shrink-0 ${ev.color}`}>
                               {ev.cat}
                             </span>
-                            <span className="text-xs font-medium text-zinc-300 truncate" title={ev.name}>
+                            <span className="text-xs font-medium text-zinc-300 group-hover:text-white transition truncate" title={ev.name}>
                               {ev.name}
                             </span>
                           </div>
-                          <span className="text-xs font-bold text-zinc-100 shrink-0">{ev.count}</span>
-                        </div>
+                          <span className="text-xs font-black text-zinc-100 shrink-0 ml-2">{ev.count}</span>
+                        </motion.div>
                       ))}
                     </div>
                   )}
                 </div>
-              </div>
-            </div>
+              </SpotlightCard>
+            </motion.div>
 
             {/* ── Third Row ── */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <motion.div variants={itemVariants} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               {/* AI Insights */}
-              <div className="glow-card rounded-xl p-6 glow-purple flex flex-col justify-between">
+              <SpotlightCard glowColor="rgba(168,85,247,0.12)" className="p-6 flex flex-col">
                 <div>
-                  <h3 className="text-sm font-bold text-white mb-4 flex items-center gap-2">
-                    <Sparkles size={14} className="text-indigo-400" />
+                  <h3 className="text-sm font-bold text-white mb-5 flex items-center gap-2">
+                    <motion.div
+                      animate={{ rotate: [0, 15, -10, 15, 0] }}
+                      transition={{ duration: 3, repeat: Infinity, repeatDelay: 2 }}
+                    >
+                      <Sparkles size={14} className="text-indigo-400" />
+                    </motion.div>
                     AI Insights
                   </h3>
                   <div className="space-y-4">
                     {insights && insights.length > 0 ? (
                       insights.slice(0, 3).map((ins, i) => (
-                        <div key={i} className="space-y-1">
+                        <motion.div
+                          key={i}
+                          initial={{ opacity: 0, y: 8 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: i * 0.08 }}
+                          className="space-y-1"
+                        >
                           <div
                             className={`flex items-center gap-1.5 text-xs font-semibold ${
                               ins.type === "critical"
@@ -899,7 +1141,7 @@ export default function Dashboard() {
                             />
                             {ins.title}
                           </div>
-                          <p className="text-[10px] text-zinc-400 leading-normal">
+                          <p className="text-[10px] text-zinc-400 leading-relaxed">
                             {ins.description}
                             {ins.recommendation && (
                               <>
@@ -908,102 +1150,82 @@ export default function Dashboard() {
                               </>
                             )}
                           </p>
-                        </div>
+                        </motion.div>
                       ))
                     ) : (
-                      <div className="text-xs text-zinc-500">
-                        No AI insights yet. Run an analysis first.
-                      </div>
+                      <p className="text-xs text-zinc-500">No AI insights yet. Run an analysis first.</p>
                     )}
                   </div>
                 </div>
-              </div>
+              </SpotlightCard>
 
               {/* Instrumentation Status */}
-              <div className="glow-card rounded-xl p-6 glow-cyan flex flex-col justify-between">
+              <SpotlightCard glowColor="rgba(6,182,212,0.12)" className="p-6 flex flex-col">
                 <div>
-                  <h3 className="text-sm font-bold text-white mb-4">Instrumentation Status</h3>
-                  <div className="flex items-center gap-6">
+                  <h3 className="text-sm font-bold text-white mb-5">Instrumentation Status</h3>
+                  <div className="flex items-center gap-5">
+                    {/* Animated donut chart */}
                     <div className="relative w-20 h-20 flex items-center justify-center shrink-0">
                       <svg className="w-full h-full transform -rotate-90">
-                        <circle cx="40" cy="40" r="34" className="stroke-zinc-800" strokeWidth="6" fill="transparent" />
-                        <circle
+                        <circle cx="40" cy="40" r="34" className="stroke-zinc-800/80" strokeWidth="6" fill="transparent" />
+                        <motion.circle
                           cx="40"
                           cy="40"
                           r="34"
-                          className="stroke-cyan-500"
+                          stroke="#06b6d4"
                           strokeWidth="6"
                           fill="transparent"
+                          strokeLinecap="round"
                           strokeDasharray="213"
-                          strokeDashoffset={Math.round(213 - (213 * instrumentationPct) / 100)}
+                          initial={{ strokeDashoffset: 213 }}
+                          animate={{ strokeDashoffset: Math.round(213 - (213 * instrumentationPct) / 100) }}
+                          transition={{ duration: 1.2, ease: [0.16, 1, 0.3, 1], delay: 0.3 }}
                         />
                       </svg>
                       <div className="absolute flex flex-col items-center justify-center">
                         <span className="text-base font-extrabold text-white">
-                          {instrumentationPct}%
+                          <AnimatedNumber value={String(instrumentationPct)} />%
                         </span>
-                        <span className="text-[8px] text-zinc-500 uppercase tracking-widest font-bold">Inst.</span>
+                        <span className="text-[8px] text-zinc-500 uppercase tracking-widest font-bold mt-0.5">Inst.</span>
                       </div>
                     </div>
-                    <div className="flex-1 space-y-1.5">
+                    <div className="flex-1 space-y-2">
                       {[
-                        {
-                          label: "Components detected",
-                          value: String(detectedComponents.length),
-                        },
-                        {
-                          label: "Instrumented",
-                          value: String(instrumentedComponents.length),
-                        },
-                        {
-                          label: "Pending review",
-                          value: String(pendingComponents.length),
-                        },
-                        {
-                          label: "Events instrumented",
-                          value:
-                            liveEventCount > 0
-                              ? String(liveEventCount)
-                              : `0 (${proposedEventCount} proposed)`,
-                        },
-                        {
-                          // "Events live" used to show the instrumented
-                          // count, which reads as received telemetry and
-                          // contradicted the Events Explorer showing 0.
-                          // These are two different claims; show both.
-                          label: "Events received",
-                          value: String(data?.eventsTracked ?? 0),
-                        },
+                        { label: "Detected", value: String(detectedComponents.length) },
+                        { label: "Instrumented", value: String(instrumentedComponents.length) },
+                        { label: "Pending", value: String(pendingComponents.length) },
+                        { label: "Events live", value: liveEventCount > 0 ? String(liveEventCount) : `0 (${proposedEventCount} proposed)` },
+                        { label: "Received", value: String(data?.eventsTracked ?? 0) },
                       ].map(({ label, value }) => (
                         <div key={label} className="flex items-center justify-between text-[11px]">
-                          <span className="text-zinc-400">{label}</span>
-                          <span className="font-semibold text-white">{value}</span>
+                          <span className="text-zinc-500">{label}</span>
+                          <span className="font-bold text-white">{value}</span>
                         </div>
                       ))}
                     </div>
                   </div>
                 </div>
-                <Link
-                  href="/instrumentation"
-                  className="w-full mt-4 bg-zinc-950/80 border border-zinc-800 hover:border-zinc-700 text-xs font-semibold py-2 rounded-lg text-zinc-300 transition text-center block"
-                >
-                  View Instrumentation
-                </Link>
-              </div>
+                <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} className="mt-5">
+                  <Link
+                    href="/instrumentation"
+                    className="w-full mt-auto bg-zinc-950/80 border border-zinc-800 hover:border-cyan-500/40 hover:text-cyan-300 text-xs font-semibold py-2.5 rounded-xl text-zinc-300 transition text-center block"
+                  >
+                    View Instrumentation
+                  </Link>
+                </motion.div>
+              </SpotlightCard>
 
               {/* Recent Activity */}
-              <div className="glow-card rounded-xl p-6 glow-indigo flex flex-col">
-                <div className="flex items-center justify-between mb-4">
+              <SpotlightCard glowColor="rgba(99,102,241,0.1)" className="p-6 flex flex-col">
+                <div className="flex items-center justify-between mb-5">
                   <h3 className="text-sm font-bold text-white">Recent Activity</h3>
-                  {/* This was a <span> styled as a link with no handler at all. */}
-                  <Link
-                    href="/events"
-                    className="text-xs text-indigo-400 font-semibold hover:text-indigo-300 transition"
-                  >
-                    View All
-                  </Link>
+                  <motion.div whileHover={{ x: 2 }}>
+                    <Link href="/events" className="text-xs text-indigo-400 font-semibold hover:text-indigo-300 transition">
+                      View All
+                    </Link>
+                  </motion.div>
                 </div>
-                <div className="space-y-3">
+                <div className="space-y-3.5 flex-1">
                   {recentActivity.length === 0 ? (
                     <div className="flex gap-2.5 items-start">
                       <Activity size={12} className="mt-0.5 text-zinc-600" />
@@ -1015,50 +1237,70 @@ export default function Dashboard() {
                     recentActivity.map((act, i) => {
                       const Icon = act.icon;
                       return (
-                        <div key={i} className="flex gap-2.5 items-start">
-                          <Icon size={12} className={`mt-0.5 ${act.color}`} />
+                        <motion.div
+                          key={i}
+                          initial={{ opacity: 0, x: -8 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ delay: i * 0.07 }}
+                          className="flex gap-2.5 items-start group"
+                        >
+                          <Icon size={12} className={`mt-0.5 ${act.color} group-hover:scale-110 transition-transform`} />
                           <div className="flex-1 flex flex-col">
-                            <span className="text-[10px] text-zinc-300 leading-normal">{act.desc}</span>
-                            {act.time && (
-                              <span className="text-[9px] text-zinc-500 mt-0.5">{act.time}</span>
-                            )}
+                            <span className="text-[10px] text-zinc-300 leading-normal group-hover:text-white transition">
+                              {act.desc}
+                            </span>
+                            {act.time && <span className="text-[9px] text-zinc-600 mt-0.5">{act.time}</span>}
                           </div>
-                        </div>
+                        </motion.div>
                       );
                     })
                   )}
                 </div>
-              </div>
+              </SpotlightCard>
 
-              {/* System Health. Each row is a subsystem state backed by a count
-                  the API actually made, not a percentage. The header badge
-                  used to read "● All Systems OK" unconditionally — it said so
-                  even while every bar below it was empty. */}
-              <div className="glow-card rounded-xl p-6 glow-emerald flex flex-col justify-between">
+              {/* System Health */}
+              <SpotlightCard glowColor="rgba(16,185,129,0.1)" className="p-6 flex flex-col">
                 <div>
-                  <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center justify-between mb-5">
                     <h3 className="text-sm font-bold text-white">System Health</h3>
-                    <span
-                      className={`flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                    <motion.span
+                      animate={healthSummary.tone === "ok" ? { scale: [1, 1.05, 1] } : {}}
+                      transition={{ duration: 2, repeat: Infinity }}
+                      className={`flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-md ${
                         healthSummary.tone === "ok"
-                          ? "text-emerald-400 bg-emerald-500/10"
+                          ? "text-emerald-400 bg-emerald-500/10 border border-emerald-500/20"
                           : healthSummary.tone === "degraded"
-                          ? "text-amber-400 bg-amber-500/10"
-                          : "text-zinc-400 bg-zinc-500/10"
+                          ? "text-amber-400 bg-amber-500/10 border border-amber-500/20"
+                          : "text-zinc-400 bg-zinc-500/10 border border-zinc-700"
                       }`}
                     >
-                      ● {healthSummary.label}
-                    </span>
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full ${
+                          healthSummary.tone === "ok"
+                            ? "bg-emerald-400 animate-pulse"
+                            : healthSummary.tone === "degraded"
+                            ? "bg-amber-400 animate-pulse"
+                            : "bg-zinc-600"
+                        }`}
+                      />
+                      {healthSummary.label}
+                    </motion.span>
                   </div>
-                  <div className="space-y-2.5">
-                    {healthRows.map((row) => {
+                  <div className="space-y-3">
+                    {healthRows.map((row, i) => {
                       const tone = HEALTH_TONE[row.signal.state] ?? HEALTH_TONE.idle;
                       return (
-                        <div key={row.name} className="space-y-0.5">
+                        <motion.div
+                          key={row.name}
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          transition={{ delay: i * 0.06 }}
+                          className="space-y-0.5"
+                        >
                           <div className="flex items-center justify-between text-[10px] font-semibold">
                             <span className="text-zinc-300">{row.name}</span>
                             <span className={`flex items-center gap-1 ${tone.text}`}>
-                              <span className={`w-1.5 h-1.5 rounded-full ${tone.dot}`} />
+                              <span className={`w-1.5 h-1.5 rounded-full ${tone.dot} ${row.signal.state === "ok" ? "animate-pulse" : ""}`} />
                               {row.signal.state === "ok"
                                 ? "Operational"
                                 : row.signal.state === "degraded"
@@ -1068,15 +1310,15 @@ export default function Dashboard() {
                                 : "Idle"}
                             </span>
                           </div>
-                          <p className="text-[9px] text-zinc-500 leading-normal">{row.signal.detail}</p>
-                        </div>
+                          <p className="text-[9px] text-zinc-600 leading-normal">{row.signal.detail}</p>
+                        </motion.div>
                       );
                     })}
                   </div>
                 </div>
-              </div>
-            </div>
-          </>
+              </SpotlightCard>
+            </motion.div>
+          </motion.div>
         )}
       </div>
 
