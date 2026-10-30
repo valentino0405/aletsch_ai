@@ -41,10 +41,12 @@ export default function LandingNav({ signedIn }: { signedIn: boolean }) {
     <header ref={headerRef} className={styles.header}>
       <Link href="#top" className={styles.brand} onClick={() => setOpen(false)} aria-label="Aletsch AI home"><Waypoints size={25} strokeWidth={1.6} aria-hidden="true" />ALETSCH.AI</Link>
       <div className={styles.desktopNavigation}>
-        <nav className={styles.navGroup} aria-label="Main navigation">
-          {LINKS.map((link) => <Link key={link.href} href={link.href}>{link.label}</Link>)}
-          <Link href={startHref} className={styles.navCta}>{signedIn ? "Dashboard" : "Get Started"}<ArrowUpRight size={15} aria-hidden="true" /></Link>
-        </nav>
+        <div className={styles.navViewport}>
+          <nav className={styles.navGroup} aria-label="Main navigation">
+            {LINKS.map((link) => <Link key={link.href} href={link.href}>{link.label}</Link>)}
+            <Link href={startHref} className={styles.navCta}>{signedIn ? "Dashboard" : "Get Started"}<ArrowUpRight size={15} aria-hidden="true" /></Link>
+          </nav>
+        </div>
         <Link href={signedIn ? "/dashboard" : "/sign-in"} className={styles.login}><UserRound size={19} aria-hidden="true" />{signedIn ? "My Account" : "Log In"}</Link>
       </div>
       <button ref={toggleRef} type="button" className={styles.menuToggle} onClick={() => setOpen(!open)} aria-label={open ? "Close menu" : "Open menu"} aria-expanded={open} aria-controls="mobile-navigation">{open ? <X size={23} /> : <Menu size={23} />}</button>

@@ -557,7 +557,7 @@ export default function Dashboard() {
             </p>
             <Link
               href="/projects"
-              className="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-xs font-semibold transition"
+              className="inline-flex items-center gap-1.5 bg-accent hover:bg-accent-hover text-on-accent px-4 py-2 rounded-lg text-xs font-semibold transition"
             >
               <Zap size={12} />
               Connect Your First Project
@@ -744,7 +744,7 @@ export default function Dashboard() {
                     <div className="relative py-8 flex items-center justify-between gap-2 overflow-x-auto min-w-[500px]">
                       <div className="absolute top-[52px] left-[5%] right-[5%] h-1 z-0 pointer-events-none">
                         <svg className="w-full h-full" preserveAspectRatio="none" viewBox="0 0 100 10">
-                          <path d="M 0 5 Q 25 8, 50 2 T 100 5" fill="none" stroke="#1f1f2e" strokeWidth="2" />
+                          <path d="M 0 5 Q 25 8, 50 2 T 100 5" fill="none" stroke="var(--color-line)" strokeWidth="2" />
                           <path
                             d="M 0 5 Q 25 8, 50 2 T 100 5"
                             fill="none"
@@ -754,9 +754,9 @@ export default function Dashboard() {
                           />
                           <defs>
                             <linearGradient id="indigo-grad" x1="0" y1="0" x2="1" y2="0">
-                              <stop offset="0%" stopColor="#6366f1" />
-                              <stop offset="50%" stopColor="#a855f7" />
-                              <stop offset="100%" stopColor="#06b6d4" />
+                              <stop offset="0%" stopColor="var(--color-accent)" />
+                              <stop offset="50%" stopColor="var(--color-sage)" />
+                              <stop offset="100%" stopColor="var(--color-cyan-500)" />
                             </linearGradient>
                           </defs>
                         </svg>

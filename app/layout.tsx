@@ -42,26 +42,39 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased dark`}
       style={{ colorScheme: "dark" }}
     >
-      <body className="min-h-full flex flex-col bg-[#030307] text-zinc-100 font-sans">
+      <body className="min-h-full flex flex-col bg-background text-zinc-100 font-sans">
         {hasClerkKey ? (
           <ClerkProvider
             appearance={{
               variables: {
-                colorPrimary: "#6366f1",
-                colorBackground: "#09090b",
+                colorPrimary: "#ff6046",
+                colorPrimaryForeground: "#101810",
+                colorBackground: "#151b14",
+                colorForeground: "#e4efdd",
+                colorMuted: "#20251f",
+                colorMutedForeground: "#a8b0a5",
+                colorInput: "#20251f",
+                colorInputForeground: "#e4efdd",
+                colorNeutral: "#e4efdd",
+                colorBorder: "#333a34",
+                colorRing: "#ff6046",
+                colorDanger: "#e58d83",
+                colorSuccess: "#afc69d",
+                colorWarning: "#ddbf90",
+                colorModalBackdrop: "#050605",
               },
             }}
           >
             {children}
           </ClerkProvider>
         ) : (
-          <div className="flex min-h-screen flex-col items-center justify-center p-6 bg-[#030307]">
+          <div className="flex min-h-screen flex-col items-center justify-center p-6 bg-background">
             <div className="max-w-md w-full p-8 rounded-2xl border border-zinc-800/80 bg-zinc-950/50 backdrop-blur-xl shadow-2xl relative overflow-hidden">
               <div className="absolute inset-0 bg-gradient-to-tr from-indigo-500/10 via-purple-500/5 to-transparent pointer-events-none" />
               
               <div className="relative z-10">
                 <div className="flex items-center gap-2 mb-6">
-                  <div className="h-8 w-8 rounded-lg bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center font-bold text-white shadow-lg shadow-indigo-500/20">
+                  <div className="h-8 w-8 rounded-lg bg-accent flex items-center justify-center font-bold text-on-accent">
                     A
                   </div>
                   <span className="font-semibold text-lg tracking-tight bg-gradient-to-r from-white via-zinc-200 to-zinc-400 bg-clip-text text-transparent">
@@ -84,7 +97,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   href="https://dashboard.clerk.com"
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex w-full items-center justify-center rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-500 shadow-md shadow-indigo-600/10"
+                  className="inline-flex w-full items-center justify-center rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-on-accent transition hover:bg-accent-hover shadow-md shadow-indigo-600/10"
                 >
                   Get Clerk API Keys
                 </a>

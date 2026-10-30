@@ -229,7 +229,7 @@ export default function RepoPicker({
             ) : status?.oauthAvailable !== false ? (
               <a
                 href={connectUrl}
-                className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg px-3.5 py-2 text-xs font-semibold shadow-md transition"
+                className="flex items-center gap-1.5 bg-accent hover:bg-accent-hover text-on-accent rounded-lg px-3.5 py-2 text-xs font-semibold shadow-md transition"
               >
                 <Link2 size={13} /> Connect GitHub
               </a>
@@ -314,7 +314,7 @@ export default function RepoPicker({
           <button
             type="submit"
             disabled={connectingRepo === "manual"}
-            className="w-full flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-700 text-white rounded-lg py-2.5 text-xs font-semibold shadow-md transition cursor-pointer"
+            className="w-full flex items-center justify-center gap-1.5 bg-accent hover:bg-accent-hover disabled:bg-accent/60 text-on-accent rounded-lg py-2.5 text-xs font-semibold shadow-md transition cursor-pointer"
           >
             {connectingRepo === "manual" ? (
               <>
@@ -435,7 +435,7 @@ export default function RepoPicker({
                   <button
                     onClick={() => connect(repo.url, repo.defaultBranch, repo.fullName)}
                     disabled={connectingRepo !== null}
-                    className="shrink-0 flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-700 disabled:opacity-60 text-white rounded-lg px-3 py-1.5 text-[11px] font-semibold transition cursor-pointer"
+                    className="shrink-0 flex items-center gap-1.5 bg-accent hover:bg-accent-hover disabled:bg-accent/60 disabled:opacity-60 text-on-accent rounded-lg px-3 py-1.5 text-[11px] font-semibold transition cursor-pointer"
                   >
                     {connectingRepo === repo.fullName ? (
                       <>

@@ -58,8 +58,8 @@ export default function RetentionPage() {
                     {cohort.days.map((val, j) => (
                       <td key={j} className="px-1 py-1">
                         <div 
-                          className="h-8 flex items-center justify-center text-xs font-semibold text-white rounded"
-                          style={{ backgroundColor: `rgba(99, 102, 241, ${val / 100})` }}
+                          className="h-8 flex items-center justify-center text-xs font-semibold text-paper rounded"
+                          style={{ backgroundColor: `color-mix(in srgb, var(--color-sage) ${val * 0.55}%, var(--color-zinc-950))` }}
                         >
                           {val}%
                         </div>

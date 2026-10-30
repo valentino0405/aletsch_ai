@@ -104,7 +104,7 @@ export default function Topbar() {
   };
 
   return (
-    <header className="h-16 border-b border-zinc-800/60 bg-[#06060c]/80 backdrop-blur-md sticky top-0 z-30 flex items-center justify-between px-6">
+    <header className="h-16 border-b border-zinc-800/60 bg-zinc-950/80 backdrop-blur-md sticky top-0 z-30 flex items-center justify-between px-6">
       {/* Search */}
       <form onSubmit={submitSearch} className="w-96 max-w-lg relative">
         <Search
@@ -219,7 +219,7 @@ export default function Topbar() {
         >
           <Bell size={16} />
           {alertCount > 0 && (
-            <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 ring-2 ring-[#06060c]" />
+            <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 ring-2 ring-zinc-950" />
           )}
         </Link>
       </div>

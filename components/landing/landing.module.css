@@ -22,11 +22,21 @@
 .brand svg { color: var(--coral); }
 .desktopNavigation, .navGroup { display: flex; align-items: center; }
 .desktopNavigation { gap: 35px; }
-.navGroup { padding-left: 24px; gap: 27px; background: #20251f; border-radius: 5px; font-size: 12px; }
+.navViewport { overflow: clip; padding: 8px; margin: -8px; }
+.navGroup { padding-left: 24px; gap: 27px; background: #20251f; border-radius: 5px; font-size: 12px; animation: navSlideIn 1.25s cubic-bezier(.65, 0, .35, 1) .25s both; }
 .navGroup > a:not(.navCta) { padding: 18px 0; transition: color .2s; }
 .navGroup > a:not(.navCta):hover { color: var(--coral); }
-.navCta { display: flex; align-items: center; justify-content: center; gap: 18px; align-self: stretch; min-width: 152px; padding: 17px 23px; border-radius: 5px; background: var(--coral); color: #171d17; transition: background .2s; }
+.navCta { display: flex; align-items: center; justify-content: center; gap: 18px; align-self: stretch; min-width: 152px; padding: 17px 23px; border-radius: 5px; background: var(--coral); color: #171d17; transition: background .2s; animation: navCtaReveal 1s cubic-bezier(.65, 0, .35, 1) 1.45s both; }
 .navCta:hover { background: #e4efdd; }
+.navViewport:focus-within .navGroup, .navViewport:focus-within .navCta { animation: none; }
+@keyframes navSlideIn {
+  from { transform: translateX(calc(100% + 8px)); }
+  to { transform: translateX(0); }
+}
+@keyframes navCtaReveal {
+  from { clip-path: inset(0 0 0 100%); }
+  to { clip-path: inset(0); }
+}
 .login { color: var(--coral); display: inline-flex; align-items: center; gap: 10px; font-size: 12px; }
 .login:hover { color: var(--paper); }
 .menuToggle, .mobileNavigation { display: none; }
@@ -44,8 +54,6 @@
 .primaryButton:hover svg, .outlineButton:hover svg, .textLink:hover svg { transform: translate(2px, -2px); }
 .scrollCue { display: inline-flex; align-items: center; gap: 13px; position: absolute; left: 6%; bottom: 38px; font-size: 10px; color: #d1dfd0; letter-spacing: .02em; }
 .scrollCue svg { color: var(--coral); }
-.motionToggle { position: absolute; right: 28px; bottom: 25px; z-index: 2; display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid #819082; border-radius: 50%; color: var(--paper); background: rgb(0 0 0 / 25%); cursor: pointer; }
-.motionToggle:hover { background: #29352c; }
 
 .features { position: relative; padding: 0 6% 160px; display: grid; grid-template-columns: .9fr 1.1fr; gap: 8%; }
 .featureIntro { padding-top: 166px; max-width: 460px; }
@@ -171,7 +179,6 @@
   .heroContent > p { margin: 28px 0 33px; font-size: 16px; }
   .heroShade { background: linear-gradient(180deg, #050605 9%, rgb(0 0 0 / 12%) 70%); }
   .scrollCue { bottom: 31px; font-size: 9px; }
-  .motionToggle { right: 6%; bottom: 21px; }
   .primaryButton, .outlineButton { padding: 17px 23px; font-size: 12px; }
   .features { gap: 47px; padding-bottom: 70px; }
   .featureIntro { padding-top: 67px; }
@@ -215,5 +222,4 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .landing *, .landing *::before, .landing *::after { animation: none !important; transition: none !important; }
-  .motionToggle { display: none; }
 }

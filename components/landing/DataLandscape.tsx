@@ -1,24 +1,18 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Pause, Play } from "lucide-react";
+import { useEffect, useRef } from "react";
 import styles from "./landing.module.css";
 
-function noise(seed: number) {
-  const value = Math.sin(seed * 127.1 + 311.7) * 43758.5453;
-  return value - Math.floor(value);
-}
-
-/** A drifting network of particles, matching the reference's dark data field. */
+/** A layered point surface with a softly eased cursor wake. */
 export default function DataLandscape() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const phaseRef = useRef(0);
-  const [paused, setPaused] = useState(false);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     const context = canvas?.getContext("2d");
     if (!canvas || !context) return;
+    const hero = canvas.parentElement;
+    if (!hero) return;
 
     const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
     let width = 0;
@@ -26,90 +20,73 @@ export default function DataLandscape() {
     let frame = 0;
     let visible = true;
     let lastFrame = 0;
-    let time = phaseRef.current;
-
-    // Seed geometry once, so individual points drift instead of flickering randomly.
-    const columns = 76;
-    const rows = 11;
-    const points = Array.from({ length: columns * rows * 3 }, (_, index) => ({
-      u: (index % columns) / (columns - 1) * 1.4 - 0.2,
-      v: (Math.floor(index / columns) % rows) / (rows - 1) - 0.5,
-      layer: Math.floor(index / (columns * rows)),
-      jitterX: (noise(index + 1) - 0.5) * 0.016,
-      jitterY: (noise(index + 7) - 0.5) * 0.026,
-      brightness: noise(index + 17),
-      size: 0.55 + noise(index + 29) * 1.3,
-      visible: noise(index + 43) > 0.24,
-    }));
-    const projected = new Float32Array(points.length * 3);
-    const stars = Array.from({ length: 260 }, (_, index) => ({
-      x: noise(index + 4001),
-      y: noise(index + 5001),
-      size: 0.5 + noise(index + 6001) * 1.1,
-      brightness: 0.1 + noise(index + 7001) * 0.28,
-    }));
+    let time = 0;
+    const pointer = { x: 0.5, y: 0.5, targetX: 0.5, targetY: 0.5, strength: 0, active: false };
+    const palette = Array.from({ length: 20 }, (_, index) =>
+      `rgba(${190 + index * 2},${215 + index},${212 + index},${0.035 + index * 0.034})`,
+    );
 
     const draw = () => {
       context.clearRect(0, 0, width, height);
       if (!width || !height) return;
-      const drift = Math.sin(time * 0.13) * 0.045;
       const mobile = width < 600;
+      const columns = mobile ? 76 : 144;
+      const rows = mobile ? 54 : 78;
+      const radius = Math.max(150, Math.min(width * 0.22, 280));
+      // Batch similarly lit points to keep the dense surface inexpensive to draw.
+      const layers = palette.map(() => new Path2D());
+      const driftX = (pointer.x - 0.5) * pointer.strength;
+      const driftY = (pointer.y - 0.5) * pointer.strength;
 
-      points.forEach((point, index) => {
-        const { u, v, layer, jitterX, jitterY } = point;
-        const depth = 0.65 + Math.sin(u * 8 + v * 3 + layer + time * 0.09) * 0.35;
-        const x = (u + jitterX + drift * (layer + 1) * 0.45) * width;
-        const y = (0.47 + Math.sin(u * 6.4 + layer * 2.1 + time * 0.12) * 0.23
-          + Math.cos(u * 15 - layer + time * 0.07) * 0.075
-          + v * 0.32 + jitterY) * height;
-        projected[index * 3] = x;
-        projected[index * 3 + 1] = y;
-        projected[index * 3 + 2] = depth;
-      });
+      for (let row = 0; row < rows; row++) {
+        const depth = row / (rows - 1);
+        const perspective = 0.3 + depth * 1.45;
+        const amplitude = 0.025 + Math.pow(depth, 0.9) * 0.15;
+        const depthLight = Math.pow(depth, 1.25);
 
-      context.lineWidth = 0.55;
-      points.forEach((point, index) => {
-        if (!point.visible || (mobile && index % 2 === 0)) return;
-        const x = projected[index * 3];
-        const y = projected[index * 3 + 1];
-        const depth = projected[index * 3 + 2];
-        const opacity = (0.18 + point.brightness * 0.52) * depth;
+        for (let column = 0; column < columns; column++) {
+          const u = column / (columns - 1) * 1.4 - 0.2;
+          const swell = u * 7.2 + depth * 4.8 - time * 0.42;
+          const fold = u * 12.4 - depth * 5.5 + time * 0.28;
+          const wave = Math.sin(swell + Math.sin(fold) * 0.32) * amplitude
+            + Math.cos(fold) * amplitude * 0.32
+            + Math.sin(u * 21 + depth * 8 + time * 0.36) * amplitude * 0.09;
+          let x = (0.5 + (u - 0.5) * perspective) * width
+            + Math.sin(depth * 4.5 + time * 0.18) * depth * 16 + driftX * depth * 22;
+          let y = (0.17 + Math.pow(depth, 1.18) * 0.94 + wave) * height + driftY * depth * 12;
 
-        if (index % columns > 0 && point.brightness > 0.7) {
-          const previous = (index - 1) * 3;
-          context.strokeStyle = `rgba(194,217,210,${opacity * 0.28})`;
-          context.beginPath();
-          context.moveTo(projected[previous], projected[previous + 1]);
-          context.lineTo(x, y);
-          context.stroke();
+          const dx = x - pointer.x * width;
+          const dy = y - pointer.y * height;
+          const distance = Math.hypot(dx, dy) / radius;
+          const influence = Math.exp(-distance * distance * 2) * pointer.strength;
+          const ripple = Math.sin(distance * 10 - time * 2.4) * influence;
+          // A local lift and concentric wake follow the cursor without moving the UI.
+          x += dx * influence * 0.12;
+          y += dy * influence * 0.08 - influence * height * 0.065 + ripple * height * 0.016;
+
+          const crest = (Math.cos(swell) + 1) * 0.5;
+          const light = Math.min(1, depthLight * (0.44 + crest * 0.4) + influence * 0.36);
+          const size = (0.35 + depth * 1.05) * (0.88 + crest * 0.16 + influence * 0.3);
+          if (x < -size || x > width + size || y < -size || y > height + size) continue;
+          const layer = layers[Math.round(light * (layers.length - 1))];
+          layer.moveTo(x + size, y);
+          layer.arc(x, y, size, 0, Math.PI * 2);
         }
-        if (index >= columns && point.brightness > 0.91) {
-          const above = (index - columns) * 3;
-          context.strokeStyle = `rgba(194,217,210,${opacity * 0.2})`;
-          context.beginPath();
-          context.moveTo(projected[above], projected[above + 1]);
-          context.lineTo(x, y);
-          context.stroke();
-        }
-        context.fillStyle = `rgba(218,232,223,${opacity})`;
-        context.beginPath();
-        context.arc(x, y, point.size * (0.55 + depth * 0.55), 0, Math.PI * 2);
-        context.fill();
-      });
-
-      stars.forEach((star) => {
-        const x = ((star.x + time * 0.004) % 1) * width;
-        const y = ((star.y + time * 0.0015) % 1) * height;
-        context.fillStyle = `rgba(219,231,221,${star.brightness})`;
-        context.beginPath();
-        context.arc(x, y, star.size, 0, Math.PI * 2);
-        context.fill();
+      }
+      layers.forEach((layer, index) => {
+        context.fillStyle = palette[index];
+        context.fill(layer);
       });
     };
 
     const animate = (timestamp: number) => {
-      if (timestamp - lastFrame >= 1000 / 30) {
-        time += Math.min(timestamp - lastFrame, 50) * 0.00016;
+      if (timestamp - lastFrame >= 1000 / (width < 600 ? 30 : 60)) {
+        const delta = Math.min(timestamp - lastFrame, 50) / 1000;
+        time += delta;
+        const ease = 1 - Math.exp(-delta * 7);
+        pointer.x += (pointer.targetX - pointer.x) * ease;
+        pointer.y += (pointer.targetY - pointer.y) * ease;
+        pointer.strength += ((pointer.active ? 1 : 0) - pointer.strength) * ease;
         lastFrame = timestamp;
         draw();
       }
@@ -118,10 +95,33 @@ export default function DataLandscape() {
     const syncAnimation = () => {
       cancelAnimationFrame(frame);
       draw();
-      if (!paused && !motion.matches && visible && !document.hidden) {
+      if (!motion.matches && visible && !document.hidden) {
         lastFrame = performance.now();
         frame = requestAnimationFrame(animate);
       }
+    };
+    const leave = () => { pointer.active = false; };
+    const move = (event: PointerEvent) => {
+      if (event.pointerType === "touch" || motion.matches) return;
+      const bounds = canvas.getBoundingClientRect();
+      pointer.targetX = (event.clientX - bounds.left) / bounds.width;
+      pointer.targetY = (event.clientY - bounds.top) / bounds.height;
+      if (!pointer.active && pointer.strength < 0.01) {
+        pointer.x = pointer.targetX;
+        pointer.y = pointer.targetY;
+      }
+      pointer.active = true;
+    };
+    const syncMotion = () => {
+      if (motion.matches) {
+        leave();
+        pointer.strength = 0;
+      }
+      syncAnimation();
+    };
+    const syncVisibility = () => {
+      if (document.hidden) leave();
+      syncAnimation();
     };
     const resize = new ResizeObserver(([entry]) => {
       width = entry.contentRect.width;
@@ -134,28 +134,29 @@ export default function DataLandscape() {
     });
     const intersection = new IntersectionObserver(([entry]) => {
       visible = entry.isIntersecting;
+      if (!visible) leave();
       syncAnimation();
     });
     resize.observe(canvas);
     intersection.observe(canvas);
-    motion.addEventListener("change", syncAnimation);
-    document.addEventListener("visibilitychange", syncAnimation);
+    hero.addEventListener("pointermove", move, { passive: true });
+    hero.addEventListener("pointerleave", leave);
+    hero.addEventListener("pointercancel", leave);
+    window.addEventListener("blur", leave);
+    motion.addEventListener("change", syncMotion);
+    document.addEventListener("visibilitychange", syncVisibility);
     return () => {
-      phaseRef.current = time;
       cancelAnimationFrame(frame);
       resize.disconnect();
       intersection.disconnect();
-      motion.removeEventListener("change", syncAnimation);
-      document.removeEventListener("visibilitychange", syncAnimation);
+      hero.removeEventListener("pointermove", move);
+      hero.removeEventListener("pointerleave", leave);
+      hero.removeEventListener("pointercancel", leave);
+      window.removeEventListener("blur", leave);
+      motion.removeEventListener("change", syncMotion);
+      document.removeEventListener("visibilitychange", syncVisibility);
     };
-  }, [paused]);
+  }, []);
 
-  return (
-    <>
-      <canvas ref={canvasRef} className={styles.landscape} aria-hidden="true" />
-      <button className={styles.motionToggle} type="button" onClick={() => setPaused(!paused)} aria-label={paused ? "Play background animation" : "Pause background animation"} aria-pressed={paused}>
-        {paused ? <Play size={13} aria-hidden="true" /> : <Pause size={13} aria-hidden="true" />}
-      </button>
-    </>
-  );
+  return <canvas ref={canvasRef} className={styles.landscape} aria-hidden="true" />;
 }

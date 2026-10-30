@@ -83,7 +83,7 @@ export default function FunnelAnalysis() {
             <select
               value={selectedFunnel}
               onChange={(e) => setSelectedFunnel(e.target.value)}
-              className="bg-[#0d0d12] border border-zinc-800 rounded-lg px-4 py-2 text-sm text-zinc-300 font-semibold outline-none cursor-pointer"
+              className="bg-card-dark border border-zinc-800 rounded-lg px-4 py-2 text-sm text-zinc-300 font-semibold outline-none cursor-pointer"
             >
               <option value="">Auto-derived from events</option>
               {savedFunnels.map((name) => (
@@ -92,10 +92,10 @@ export default function FunnelAnalysis() {
                 </option>
               ))}
             </select>
-            <button className="bg-[#0d0d12] border border-zinc-800 text-zinc-300 hover:text-white px-4 py-2 rounded-lg text-sm font-semibold transition">
+            <button className="bg-card-dark border border-zinc-800 text-zinc-300 hover:text-white px-4 py-2 rounded-lg text-sm font-semibold transition">
               Share
             </button>
-            <button className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-sm font-semibold transition flex items-center gap-2">
+            <button className="bg-accent hover:bg-accent-hover text-on-accent px-4 py-2 rounded-lg text-sm font-semibold transition flex items-center gap-2">
               <Database size={16} /> Save Funnel
             </button>
           </div>
@@ -111,7 +111,7 @@ export default function FunnelAnalysis() {
         <div className="flex gap-6 flex-1 min-h-0">
           {/* Left Panel: Funnel Definition */}
           <div className="w-80 flex flex-col gap-4 overflow-y-auto pr-2 shrink-0">
-            <div className="bg-[#0d0d12] border border-zinc-800 rounded-xl p-5">
+            <div className="bg-card-dark border border-zinc-800 rounded-xl p-5">
               <h3 className="text-sm font-bold text-white mb-1">Funnel Definition</h3>
               <p className="text-[11px] text-zinc-500 mb-6">Define the steps and conditions for your funnel.</p>
 
@@ -128,7 +128,7 @@ export default function FunnelAnalysis() {
                 <div className="absolute left-3.5 top-5 bottom-5 w-px bg-zinc-800 -z-10"></div>
 
                 <div className="flex items-start gap-3">
-                  <div className="w-7 h-7 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xs font-bold shrink-0 z-10">1</div>
+                  <div className="w-7 h-7 rounded-full bg-accent text-on-accent flex items-center justify-center text-xs font-bold shrink-0 z-10">1</div>
                   <div className="flex-1 bg-zinc-900 border border-zinc-800 rounded-lg p-3">
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-xs font-semibold text-white">Pageview</span>
@@ -151,7 +151,7 @@ export default function FunnelAnalysis() {
                 </div>
 
                 <div className="flex items-start gap-3">
-                  <div className="w-7 h-7 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xs font-bold shrink-0 z-10">2</div>
+                  <div className="w-7 h-7 rounded-full bg-accent text-on-accent flex items-center justify-center text-xs font-bold shrink-0 z-10">2</div>
                   <div className="flex-1 bg-zinc-900 border border-zinc-800 rounded-lg p-3 flex items-center justify-between">
                     <span className="text-xs font-semibold text-white">Account Created</span>
                     <MoreHorizontal size={14} className="text-zinc-500 cursor-pointer" />
@@ -159,7 +159,7 @@ export default function FunnelAnalysis() {
                 </div>
 
                 <div className="flex items-start gap-3">
-                  <div className="w-7 h-7 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xs font-bold shrink-0 z-10">3</div>
+                  <div className="w-7 h-7 rounded-full bg-accent text-on-accent flex items-center justify-center text-xs font-bold shrink-0 z-10">3</div>
                   <div className="flex-1 bg-zinc-900 border border-zinc-800 rounded-lg p-3 flex items-center justify-between">
                     <span className="text-xs font-semibold text-white">Project Created</span>
                     <MoreHorizontal size={14} className="text-zinc-500 cursor-pointer" />
@@ -202,7 +202,7 @@ export default function FunnelAnalysis() {
           <div className="flex-1 flex flex-col gap-6 overflow-y-auto pr-2 pb-10">
             
             {/* Top Toolbar */}
-            <div className="flex items-center justify-between bg-[#0d0d12] border border-zinc-800 rounded-xl p-3">
+            <div className="flex items-center justify-between bg-card-dark border border-zinc-800 rounded-xl p-3">
               <div className="flex items-center gap-3">
                 <select className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5 text-xs text-white font-medium outline-none">
                   <option>Last 30 days</option>
@@ -231,7 +231,7 @@ export default function FunnelAnalysis() {
 
             {/* KPIs */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="glow-card rounded-xl p-4 border border-zinc-800 bg-[#0d0d12] flex items-center gap-4">
+              <div className="glow-card rounded-xl p-4 border border-zinc-800 bg-card-dark flex items-center gap-4">
                 <div className="w-10 h-10 rounded-lg bg-indigo-500/10 flex items-center justify-center text-indigo-400">
                   <LineChart size={20} />
                 </div>
@@ -242,7 +242,7 @@ export default function FunnelAnalysis() {
                   </div>
                 </div>
               </div>
-              <div className="glow-card rounded-xl p-4 border border-zinc-800 bg-[#0d0d12] flex items-center gap-4">
+              <div className="glow-card rounded-xl p-4 border border-zinc-800 bg-card-dark flex items-center gap-4">
                 <div className="w-10 h-10 rounded-lg bg-purple-500/10 flex items-center justify-center text-purple-400">
                   <Clock size={20} />
                 </div>
@@ -254,7 +254,7 @@ export default function FunnelAnalysis() {
                   </div>
                 </div>
               </div>
-              <div className="glow-card rounded-xl p-4 border border-zinc-800 bg-[#0d0d12] flex items-center gap-4">
+              <div className="glow-card rounded-xl p-4 border border-zinc-800 bg-card-dark flex items-center gap-4">
                 <div className="w-10 h-10 rounded-lg bg-cyan-500/10 flex items-center justify-center text-cyan-400">
                   <Users size={20} />
                 </div>
@@ -268,7 +268,7 @@ export default function FunnelAnalysis() {
             </div>
 
             {/* Chart Area */}
-            <div className="glow-card rounded-xl p-6 border border-zinc-800 bg-[#0d0d12] glow-indigo">
+            <div className="glow-card rounded-xl p-6 border border-zinc-800 bg-card-dark glow-indigo">
               {loading ? (
                 <div className="space-y-6">
                   {[0, 1, 2].map((i) => (
@@ -293,7 +293,7 @@ export default function FunnelAnalysis() {
                       </div>
                       <div className="h-10 bg-zinc-900/50 rounded-lg overflow-hidden border border-zinc-800/40 relative">
                         <div
-                          className="h-full bg-indigo-600 hover:bg-indigo-500 transition-colors cursor-pointer"
+                          className="h-full bg-accent hover:bg-accent-hover transition-colors cursor-pointer"
                           style={{ width: `${Math.max(0, Math.min(100, step.percent))}%` }}
                         />
                         <div className="absolute inset-0 flex items-center justify-between px-3 pointer-events-none">
@@ -323,7 +323,7 @@ export default function FunnelAnalysis() {
             </div>
 
             {/* Detailed Results Table */}
-            <div className="glow-card rounded-xl border border-zinc-800 bg-[#0d0d12] overflow-hidden">
+            <div className="glow-card rounded-xl border border-zinc-800 bg-card-dark overflow-hidden">
               <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
                 <h3 className="text-sm font-bold text-white">Detailed Results</h3>
                 <button className="flex items-center gap-1.5 text-xs font-semibold text-zinc-400 hover:text-white transition">
@@ -371,7 +371,7 @@ export default function FunnelAnalysis() {
 
             {/* Breakdown Section (Mock) */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <div className="lg:col-span-2 glow-card rounded-xl border border-zinc-800 bg-[#0d0d12] overflow-hidden flex flex-col">
+              <div className="lg:col-span-2 glow-card rounded-xl border border-zinc-800 bg-card-dark overflow-hidden flex flex-col">
                 <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
                   <h3 className="text-sm font-bold text-white">Breakdown</h3>
                   <select className="bg-zinc-900 border border-zinc-800 rounded text-xs text-white px-2 py-1 outline-none">
@@ -405,7 +405,7 @@ export default function FunnelAnalysis() {
                 </div>
               </div>
 
-              <div className="glow-card rounded-xl border border-zinc-800 bg-[#0d0d12] p-4 flex flex-col">
+              <div className="glow-card rounded-xl border border-zinc-800 bg-card-dark p-4 flex flex-col">
                 <h3 className="text-sm font-bold text-white mb-4">Device Type (Mock)</h3>
                 <div className="flex-1 flex flex-col items-center justify-center">
                   <div className="w-32 h-32 rounded-full border-[16px] border-zinc-800 relative mb-6">

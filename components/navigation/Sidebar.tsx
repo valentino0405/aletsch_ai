@@ -120,7 +120,7 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
 
   return (
     <aside
-      className={`fixed top-0 left-0 z-40 h-screen transition-all duration-300 border-r border-zinc-800/60 bg-[#06060c] flex flex-col ${
+      className={`fixed top-0 left-0 z-40 h-screen transition-all duration-300 border-r border-zinc-800/60 bg-zinc-950 flex flex-col ${
         isOpen ? "w-64" : "w-20"
       }`}
     >
@@ -128,7 +128,7 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
       <div className="flex-1 min-h-0 flex flex-col">
         <div className="h-16 flex items-center justify-between px-4 border-b border-zinc-800/60">
           <div className="flex items-center gap-3 overflow-hidden">
-            <div className="h-8 w-8 min-w-[32px] rounded-lg bg-gradient-to-tr from-indigo-500 via-purple-500 to-cyan-500 flex items-center justify-center font-bold text-white shadow-md shadow-indigo-500/20">
+            <div className="h-8 w-8 min-w-[32px] rounded-lg bg-accent flex items-center justify-center font-bold text-on-accent">
               A
             </div>
             {isOpen && (
@@ -174,7 +174,7 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                       isOpen ? "px-3" : "px-0 justify-center"
                     } ${
                       isActive
-                        ? "bg-indigo-600/15 text-white shadow-[0_0_10px_rgba(99,102,241,0.1)]"
+                        ? "bg-indigo-500/10 text-paper"
                         : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/50"
                     }`}
                   >
@@ -202,7 +202,7 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
       </div>
 
       {/* Bottom Info & User Profile */}
-      <div className="shrink-0 p-2 border-t border-zinc-800/60 bg-[#040409]">
+      <div className="shrink-0 p-2 border-t border-zinc-800/60 bg-background">
         {/* Project Card */}
         {isOpen && (
           <div className="mb-2 p-2.5 rounded-lg border border-zinc-800/80 bg-zinc-950/40 relative overflow-hidden">

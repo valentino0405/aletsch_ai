@@ -144,7 +144,7 @@ function InteractionModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
       <div
-        className="max-w-lg w-full rounded-2xl border border-zinc-800 bg-[#09090f] shadow-2xl p-6 relative"
+        className="max-w-lg w-full rounded-2xl border border-zinc-800 bg-card-dark shadow-2xl p-6 relative"
         onClick={(e) => e.stopPropagation()}
       >
         <button onClick={onClose} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition">
@@ -670,7 +670,7 @@ export default function Instrumentation() {
                           onClick={() => setActiveFilter(tab.id)}
                           className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold transition cursor-pointer ${
                             activeFilter === tab.id
-                              ? "bg-indigo-600 text-white"
+                              ? "bg-accent text-on-accent"
                               : "bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800"
                           }`}
                         >

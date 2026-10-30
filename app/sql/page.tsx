@@ -15,14 +15,14 @@ export default function SqlPage() {
             </h1>
             <p className="text-sm text-zinc-400">Query your event data directly using SQL.</p>
           </div>
-          <button className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-sm font-semibold transition">
+          <button className="flex items-center gap-2 bg-accent hover:bg-accent-hover text-on-accent px-4 py-2 rounded-lg text-sm font-semibold transition">
             <Play size={16} /> Run Query
           </button>
         </div>
 
         <div className="flex-1 flex flex-col gap-4 min-h-0">
           {/* Editor */}
-          <div className="h-48 shrink-0 bg-[#0d0d12] border border-zinc-800 rounded-xl p-4 font-mono text-sm overflow-auto">
+          <div className="h-48 shrink-0 bg-card-dark border border-zinc-800 rounded-xl p-4 font-mono text-sm overflow-auto">
             <div className="text-zinc-500 mb-2">-- Example Query (UI Mock)</div>
             <div className="text-indigo-400">SELECT</div>
             <div className="text-white pl-4">event_name,</div>

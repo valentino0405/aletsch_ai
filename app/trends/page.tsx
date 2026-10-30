@@ -14,7 +14,7 @@ export default function TrendsPage() {
             <p className="text-sm text-zinc-400">Analyze how your events and metrics are performing over time.</p>
           </div>
           <div className="flex items-center gap-2">
-            <button className="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-lg text-xs font-semibold transition">
+            <button className="bg-accent hover:bg-accent-hover text-on-accent px-3 py-1.5 rounded-lg text-xs font-semibold transition">
               Save Report
             </button>
           </div>
@@ -71,7 +71,7 @@ export default function TrendsPage() {
 
         {/* Chart Area */}
         <div className="glow-card rounded-xl p-6 border border-zinc-800 bg-zinc-950/50 h-80 flex items-center justify-center relative overflow-hidden">
-          <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:24px_24px]"></div>
+          <div className="absolute inset-0 bg-[linear-gradient(to_right,#a8b0a512_1px,transparent_1px),linear-gradient(to_bottom,#a8b0a512_1px,transparent_1px)] bg-[size:24px_24px]"></div>
           <div className="relative z-10 flex flex-col items-center gap-2">
             <LineChart size={48} className="text-zinc-700" />
             <p className="text-sm font-semibold text-zinc-400">Mock Data Visualization</p>

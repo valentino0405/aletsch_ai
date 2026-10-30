@@ -149,7 +149,7 @@ export default function Projects() {
           </div>
           <button
             onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg px-4 py-2 text-xs font-semibold shadow-md shadow-indigo-600/10 transition cursor-pointer"
+            className="flex items-center gap-1.5 bg-accent hover:bg-accent-hover text-on-accent rounded-lg px-4 py-2 text-xs font-semibold shadow-md shadow-indigo-600/10 transition cursor-pointer"
           >
             <Plus size={16} />
             <span>Connect repository</span>
@@ -175,7 +175,7 @@ export default function Projects() {
             </p>
             <button
               onClick={() => setShowAddModal(true)}
-              className="mt-4 inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg px-4 py-2 text-xs font-semibold transition cursor-pointer"
+              className="mt-4 inline-flex items-center gap-1.5 bg-accent hover:bg-accent-hover text-on-accent rounded-lg px-4 py-2 text-xs font-semibold transition cursor-pointer"
             >
               <Plus size={14} /> Connect repository
             </button>
@@ -270,7 +270,7 @@ export default function Projects() {
         {/* Connect modal — the same picker the Repositories page uses. */}
         {showAddModal && (
           <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 sm:p-8 bg-black/60 backdrop-blur-sm">
-            <div className="max-w-2xl w-full p-6 rounded-2xl border border-zinc-800 bg-[#09090f] shadow-2xl relative my-auto">
+            <div className="max-w-2xl w-full p-6 rounded-2xl border border-zinc-800 bg-card-dark shadow-2xl relative my-auto">
               <button
                 onClick={() => setShowAddModal(false)}
                 className="absolute top-4 right-4 text-zinc-500 hover:text-white transition cursor-pointer"
