@@ -153,7 +153,7 @@ function toSnake(text: string): string {
  * always the same action (e.g. the same button rendered in a loop).
  */
 function dedupeKey(eventName: string, site: EventSite): string {
-  return `${eventName}::${site.componentName}::${site.route}`;
+  return `${eventName}::${interactionKey({ ...site, type: site.interactionType })}`;
 }
 
 /**

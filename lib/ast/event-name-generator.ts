@@ -138,7 +138,7 @@ export function extractLabel(
   handler?: string,
   componentName?: string
 ): string {
-  const candidates = [jsxText, ariaLabel, title, name, id];
+  const candidates = [ariaLabel, jsxText, title, name, id];
   for (const c of candidates) {
     const cleaned = c?.trim().replace(/\s+/g, " ");
     if (cleaned && cleaned.length > 0 && cleaned.length < 100) {

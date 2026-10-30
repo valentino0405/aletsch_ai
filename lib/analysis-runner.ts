@@ -6,7 +6,7 @@
 import { getDb } from "./mongodb";
 import { parseGitHubUrl, getRawFileContent } from "./github";
 import { resolveGitHubAuth } from "./github-connection";
-import { parseFile } from "./ast/interaction-detector";
+import { analyzeFiles, type parseFile } from "./ast/interaction-detector";
 import { extractRoutes } from "./ast/route-detector";
 import { ObjectId } from "mongodb";
 import { fallbackStore } from "./fallback-store";
@@ -114,6 +114,7 @@ export async function runBackgroundAnalysis(projectId: string, jobId: string) {
     // ── 3. Fetch & parse each file ───────────────────────────
     const allFilePaths: string[] = [];
     const fileResults: ReturnType<typeof parseFile>[] = [];
+    const fetchedFiles: { path: string; content: string }[] = [];
     const fetchErrors: Array<{ filePath: string; error: string }> = [];
 
     for (let i = 0; i < totalFiles; i++) {
@@ -136,13 +137,13 @@ export async function runBackgroundAnalysis(projectId: string, jobId: string) {
           continue;
         }
 
-        const parsed = parseFile(file.path, content);
-        fileResults.push(parsed);
+        fetchedFiles.push({ path: file.path, content });
       } catch (err: any) {
         fetchErrors.push({ filePath: file.path, error: err?.message || "Fetch failed" });
       }
     }
 
+    fileResults.push(...analyzeFiles(fetchedFiles));
     await updateJob({ progress: 72, currentStep: "Aggregating analysis results..." });
 
     // ── 4. Aggregate results ─────────────────────────────────
@@ -315,6 +316,7 @@ export async function runFallbackAnalysis(
     console.log(`[Fallback Analysis] ${repositoryUrl}: ${analyzableFiles.length} analyzable files found.`);
     const allFilePaths = analyzableFiles.map((file) => file.path);
     const parsedResults: ReturnType<typeof parseFile>[] = [];
+    const fetchedFiles: { path: string; content: string }[] = [];
 
     for (let index = 0; index < analyzableFiles.length; index++) {
       const file = analyzableFiles[index];
@@ -324,12 +326,13 @@ export async function runFallbackAnalysis(
       });
       try {
         const content = await getRawFileContent(owner, repo, branch, file.path, githubAuth);
-        if (content.length <= 500_000) parsedResults.push(parseFile(file.path, content));
+        if (content.length <= 500_000) fetchedFiles.push({ path: file.path, content });
       } catch {
         // Continue when an individual raw file cannot be fetched.
       }
     }
 
+    parsedResults.push(...analyzeFiles(fetchedFiles));
     const successfulResults = parsedResults.filter((result) => result.success);
     const components = successfulResults.flatMap((result) => result.components);
     const interactions = successfulResults.flatMap((result) => result.interactions);

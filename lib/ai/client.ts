@@ -13,16 +13,12 @@ export class AIService {
   /**
    * Models tried, in order, when the configured one is unavailable.
    *
-   * OpenRouter retires `:free` slugs without notice — the previously
-   * configured `meta-llama/llama-3.3-70b-instruct:free` started
-   * answering every request with HTTP 404 ("This model is unavailable
-   * for free"), which silently disabled the entire AI layer while
-   * `isConfigured()` still reported true. A single hardcoded slug is
-   * therefore a single point of failure; this chain is the fallback.
+   * Individual free model slugs retire without notice. The gateway's
+   * free router selects an available model instead of pinning another
+   * retiring slug. Keep the developer's configured model first.
    */
   private static readonly FALLBACK_MODELS = [
-    "nvidia/nemotron-3.5-lightning:free",
-    "nex-agi/nex-n2.5-pro:free",
+    "openrouter/free",
   ];
 
   /** Slugs this process has already seen rejected as unavailable. */
@@ -55,7 +51,7 @@ export class AIService {
   public static async generateText(
     systemPrompt: string,
     userPrompt: string,
-    options?: { temperature?: number; maxTokens?: number }
+    options?: { temperature?: number; maxTokens?: number; timeoutMs?: number; jsonMode?: boolean }
   ): Promise<AIServiceResponse> {
     const apiKey = this.getApiKey();
     if (!apiKey) {
@@ -68,6 +64,7 @@ export class AIService {
       try {
         const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
           method: "POST",
+          signal: AbortSignal.timeout(Math.max(1, Math.min(options?.timeoutMs ?? 15_000, 60_000))),
           headers: {
             Authorization: `Bearer ${apiKey}`,
             "Content-Type": "application/json",
@@ -82,12 +79,13 @@ export class AIService {
             ],
             temperature: options?.temperature ?? 0.2,
             max_tokens: options?.maxTokens ?? 1500,
+            response_format: options?.jsonMode ? {type: "json_object"} : undefined,
+            reasoning: options?.jsonMode ? {exclude: true} : undefined,
           }),
         });
 
         if (!response.ok) {
-          const errText = await response.text();
-          lastError = `OpenRouter status ${response.status} for "${model}": ${errText.slice(0, 300)}`;
+          lastError = `OpenRouter status ${response.status} for "${model}".`;
 
           // 404 means the slug no longer exists (or is no longer free);
           // 429 means this model is rate-limited right now. Both are
@@ -108,15 +106,15 @@ export class AIService {
 
         const json = await response.json();
         const choice = json.choices?.[0]?.message?.content;
-        if (!choice) {
+        if (typeof choice !== "string" || !choice.trim()) {
           lastError = `OpenRouter returned an empty message response from "${model}".`;
           continue;
         }
 
         return { success: true, content: choice, model };
       } catch (e: unknown) {
-        lastError = (e as Error)?.message || "Unknown network communication error.";
-        console.error("AI Request Failed:", e);
+        lastError = e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError") ? "AI request timed out." : "AI network request failed.";
+        console.error("[AIService]", lastError);
       }
     }
 
@@ -131,9 +129,9 @@ export class AIService {
     userPrompt: string,
     validator: (data: any) => T | null
   ): Promise<T | null> {
-    const formattedSystemPrompt = `${systemPrompt}\nIMPORTANT: You must respond with a raw JSON block ONLY. Do not enclose the output in markdown code blocks like \`\`\`json. Output clean valid JSON structure matching requirements.`;
+    const formattedSystemPrompt = `${systemPrompt}\nIMPORTANT: You must respond with a raw JSON object ONLY. Do not enclose the output in markdown code blocks like \`\`\`json. If the requested result is an array, wrap it as {"interactions": [...]}. Output clean valid JSON structure matching requirements.`;
 
-    const response = await this.generateText(formattedSystemPrompt, userPrompt);
+    const response = await this.generateText(formattedSystemPrompt, userPrompt, {jsonMode: true, maxTokens: 4096});
     if (!response.success || !response.content) {
       return null;
     }
@@ -147,8 +145,8 @@ export class AIService {
 
       const parsed = JSON.parse(rawJson);
       return validator(parsed);
-    } catch (err) {
-      console.error("AI Response JSON parsing failed. Content was: ", response.content, err);
+    } catch {
+      console.error("[AIService] Response did not match the JSON contract.");
       return null;
     }
   }

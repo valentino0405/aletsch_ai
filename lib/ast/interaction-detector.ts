@@ -24,6 +24,7 @@ import type {
 } from "./types";
 import { detectRouteFromPath } from "./route-detector";
 import { generateEventName, extractLabel } from "./event-name-generator";
+import { sanitizeForLLM } from "../security/secret-filter";
 
 // ── Constants ────────────────────────────────────────────────
 
@@ -40,13 +41,33 @@ const BUTTON_LIKE_NAME_PATTERNS = [
   /trigger/i,
 ];
 
-/** Authentication-related label patterns */
-const AUTH_PATTERNS = [/login/i, /sign.?in/i, /sign.?up/i, /logout/i, /register/i, /auth/i];
-
-/** Repository action patterns */
-const REPO_PATTERNS = [/connect.?repo/i, /repository/i, /add.?repo/i, /clone/i, /sync.?repo/i];
-
 // ── Helper: extract JSX attribute value ─────────────────────
+
+const accessibleNames = new WeakMap<Node, Map<string, string>>();
+function relatedAccessibleName(element: JsxOpeningElement | JsxSelfClosingElement): string | undefined {
+  const source = element.getSourceFile();
+  let names = accessibleNames.get(source);
+  if (!names) {
+    names = new Map();
+    for (const jsx of source.getDescendantsOfKind(SyntaxKind.JsxElement)) {
+      const opening = jsx.getOpeningElement();
+      const id = getJsxAttrString(opening, "id");
+      if (id) names.set("id:" + id, getJsxTextContent(jsx));
+      if (opening.getTagNameNode().getText() === "label") {
+        const target = getJsxAttrString(opening, "htmlFor");
+        if (target) names.set("for:" + target, getJsxTextContent(jsx));
+      }
+    }
+    accessibleNames.set(source, names);
+  }
+  const labelledBy = getJsxAttrString(element, "aria-labelledby");
+  const referenced = labelledBy?.split(/\s+/).map(id => names!.get("id:" + id) ?? "").filter(Boolean).join(" ");
+  if (referenced) return referenced;
+  const id = getJsxAttrString(element, "id");
+  if (id && names.has("for:" + id)) return names.get("for:" + id);
+  const label = element.getAncestors().find(node => Node.isJsxElement(node) && node.getOpeningElement().getTagNameNode().getText() === "label");
+  return label ? getJsxTextContent(label) : undefined;
+}
 
 function getJsxAttrString(element: JsxOpeningElement | JsxSelfClosingElement, attrName: string): string | undefined {
   try {
@@ -62,11 +83,12 @@ function getJsxAttrString(element: JsxOpeningElement | JsxSelfClosingElement, at
         const expr = init.getExpression();
         if (!expr) return undefined;
         if (Node.isStringLiteral(expr)) return expr.getLiteralValue();
-        return expr.getText().replace(/['"]/g, "").trim();
+        if (expr.getKind() === SyntaxKind.NullKeyword || expr.getKind() === SyntaxKind.FalseKeyword || expr.getText() === "undefined") return undefined;
+        return expr.getText().trim();
       }
     }
   } catch { /* ignore */ }
-  return undefined;
+  return attrName === "aria-label" ? relatedAccessibleName(element) : undefined;
 }
 
 /** Extract visible text from a JSX element's children */
@@ -77,6 +99,10 @@ function getJsxTextContent(node: Node): string {
       if (Node.isJsxText(child)) {
         const t = child.getText().replace(/\s+/g, " ").trim();
         if (t) texts.push(t);
+      }
+      if (Node.isJsxExpression(child) && !child.getFirstAncestorByKind(SyntaxKind.JsxAttribute)) {
+        const expression = child.getExpression();
+        if (expression && Node.isStringLiteral(expression)) texts.push(expression.getLiteralValue());
       }
     });
     return texts.join(" ").trim().substring(0, 80);
@@ -93,7 +119,11 @@ function getContainingComponentName(node: Node): string {
       if (Node.isFunctionDeclaration(current)) {
         const name = (current as FunctionDeclaration).getName();
         if (name && /^[A-Z]/.test(name)) return name;
+        if (!name && current.isDefaultExport()) return defaultComponentName(node);
       }
+      if (Node.isVariableDeclaration(current) && /^[A-Z]/.test(current.getName())) return current.getName();
+      if (Node.isClassDeclaration(current) && current.getName()) return current.getName()!;
+      if (Node.isExportAssignment(current)) return defaultComponentName(node);
       if (Node.isArrowFunction(current) || Node.isFunctionExpression(current)) {
         const parent = current.getParent();
         if (Node.isVariableDeclaration(parent)) {
@@ -114,10 +144,59 @@ function classifyInteractionType(
   handler: string,
   tagName: string
 ): InteractionType {
-  const combined = `${label} ${handler} ${tagName}`.toLowerCase();
-  if (AUTH_PATTERNS.some((p) => p.test(combined))) return "authentication";
-  if (REPO_PATTERNS.some((p) => p.test(combined))) return "repository_connection";
+  // Business meaning belongs to the semantic classifier, never the AST type.
   return baseType;
+}
+
+function defaultComponentName(node: Node): string {
+  const base = node.getSourceFile().getBaseNameWithoutExtension().replace(/[^A-Za-z0-9_$]/g, "_");
+  return base.charAt(0).toUpperCase() + base.slice(1);
+}
+
+function containsJsx(node: Node): boolean {
+  return node.getDescendants().some(child => Node.isJsxElement(child) || Node.isJsxSelfClosingElement(child) || Node.isJsxFragment(child));
+}
+
+function handlerExpression(element: JsxOpeningElement | JsxSelfClosingElement, attribute: string): Node | undefined {
+  const attr = element.getAttribute(attribute);
+  if (!attr || !Node.isJsxAttribute(attr)) return undefined;
+  const initializer = attr.getInitializer();
+  let expression: Node | undefined = initializer && Node.isJsxExpression(initializer) ? initializer.getExpression() : undefined;
+  // Re-analysis must inspect the application's handler, not our wrapper.
+  const trackerNames = new Set(element.getSourceFile().getImportDeclarations().flatMap(declaration => declaration.getNamedImports().filter(named => named.getName() === "trackEvent").map(named => named.getAliasNode()?.getText() ?? named.getName())));
+  while (expression && Node.isCallExpression(expression) && (trackerNames.has(expression.getExpression().getText()) || /(?:^|\.)\w*trackEvent$/i.test(expression.getExpression().getText()))) {
+    expression = expression.getArguments()[2];
+  }
+  return expression;
+}
+
+function semanticContext(element: JsxOpeningElement | JsxSelfClosingElement, attribute: string, componentName: string) {
+  let expression = handlerExpression(element, attribute);
+  if (expression && Node.isIdentifier(expression)) {
+    const definition = expression.getDefinitionNodes().find(node => Node.isFunctionDeclaration(node) || Node.isVariableDeclaration(node) || Node.isMethodDeclaration(node));
+    if (definition) expression = definition;
+  }
+  if (expression && Node.isPropertyAccessExpression(expression)) {
+    const definition = expression.getNameNode().getSymbol()?.getDeclarations().find(node => Node.isMethodDeclaration(node) || Node.isPropertyDeclaration(node));
+    if (definition) expression = definition;
+  }
+  const source = expression?.getText() ?? "";
+  const calls = expression?.getDescendantsOfKind(SyntaxKind.CallExpression) ?? [];
+  if (expression && Node.isCallExpression(expression)) calls.unshift(expression);
+  const navigation = calls.find(call => /(?:^navigate$|(?:router|navigation)\.(?:push|replace)$)/.test(call.getExpression().getText()));
+  const target = navigation?.getArguments()[0];
+  const form = element.getAncestors().find(node => Node.isJsxElement(node) && /^(form|Form)$/.test(node.getOpeningElement().getTagNameNode().getText()));
+  const formOpening = form && Node.isJsxElement(form) ? form.getOpeningElement() : undefined;
+  const fields = form?.getDescendantsOfKind(SyntaxKind.JsxSelfClosingElement).filter(node => /^(input|Input|textarea|Textarea|select|Select)$/.test(node.getTagNameNode().getText())).map(node => ({
+    name: getJsxAttrString(node, "name") ?? "", type: getJsxAttrString(node, "type") ?? "text", placeholder: getJsxAttrString(node, "placeholder") ?? "",
+  })) ?? [];
+  return {
+    handlerSource: sanitizeForLLM(source, 1000),
+    calledFunctions: [...new Set(calls.map(call => sanitizeForLLM(call.getExpression().getText(), 100)))].slice(0, 12),
+    navigationTarget: target && Node.isStringLiteral(target) ? sanitizeForLLM(target.getLiteralValue().split(/[?#]/)[0], 120) : undefined,
+    formContext: formOpening ? { componentName, name: getJsxAttrString(formOpening, "aria-label") ?? getJsxAttrString(formOpening, "name") ?? componentName, handler: getJsxAttrString(formOpening, "onSubmit") ?? "", fields } : undefined,
+    ariaLabel: getJsxAttrString(element, "aria-label"), placeholder: getJsxAttrString(element, "placeholder"),
+  };
 }
 
 /** Extract handler function name from an event attribute value */
@@ -140,7 +219,7 @@ function extractHandlerName(attrValue: string | undefined): string {
  * detected React components and user interactions.
  * Never throws — errors are captured in result.error.
  */
-export function parseFile(filePath: string, content: string): ParsedFileResult {
+export function parseFile(filePath: string, content: string, sharedProject?: Project): ParsedFileResult {
   const route = detectRouteFromPath(filePath);
   const result: ParsedFileResult = {
     filePath,
@@ -166,8 +245,9 @@ export function parseFile(filePath: string, content: string): ParsedFileResult {
 
   let project: Project;
   try {
-    project = new Project({
+    project = sharedProject ?? new Project({
       useInMemoryFileSystem: true,
+      skipLoadingLibFiles: true,
       compilerOptions: {
         jsx: 4, // JsxEmit.ReactJSX
         allowJs: true,
@@ -183,6 +263,11 @@ export function parseFile(filePath: string, content: string): ParsedFileResult {
   let sourceFile: ReturnType<typeof project.createSourceFile>;
   try {
     sourceFile = project.createSourceFile(filePath, content, { overwrite: true });
+    const diagnostics = project.getProgram().getSyntacticDiagnostics(sourceFile);
+    if (diagnostics.length) {
+      result.error = diagnostics.map(d => `TS${d.getCode()}: ${d.getMessageText()}`).join("; ");
+      return result;
+    }
   } catch (e: any) {
     result.error = `Source file parse failed: ${e?.message}`;
     return result;
@@ -195,8 +280,9 @@ export function parseFile(filePath: string, content: string): ParsedFileResult {
     // ── 2. Detect all JSX elements ──────────────────────────
     detectJsxInteractions(sourceFile, filePath, route, result);
 
-    // ── 3. Detect router.push / router.replace ──────────────
-    detectRouterNavigation(sourceFile, filePath, route, result);
+    // Router calls enrich their owning JSX handler; declarations/effects
+    // are not additional user interactions or separate injection sites.
+    for (const component of result.components) component.interactionCount = result.interactions.filter(i => i.componentName === component.name).length;
 
     result.success = true;
   } catch (e: any) {
@@ -216,9 +302,9 @@ function detectComponents(
   result: ParsedFileResult
 ): void {
   // Named function declarations: function LoginForm() { ... }
-  sourceFile.getFunctions().forEach((fn) => {
-    const name = fn.getName();
-    if (!name || !/^[A-Z]/.test(name)) return;
+  sourceFile.getDescendantsOfKind(SyntaxKind.FunctionDeclaration).forEach((fn) => {
+    const name = fn.getName() ?? (fn.isDefaultExport() ? defaultComponentName(fn) : "");
+    if (!name || !/^[A-Z]/.test(name) || !containsJsx(fn)) return;
     result.components.push({
       name,
       filePath,
@@ -230,23 +316,32 @@ function detectComponents(
   });
 
   // Arrow function / function expression components via variable declarations
-  sourceFile.getVariableDeclarations().forEach((decl) => {
+  sourceFile.getDescendantsOfKind(SyntaxKind.VariableDeclaration).forEach((decl) => {
     const name = decl.getName();
     if (!name || !/^[A-Z]/.test(name)) return;
     const init = decl.getInitializer();
     if (!init) return;
-    if (Node.isArrowFunction(init) || Node.isFunctionExpression(init)) {
+    if (Node.isArrowFunction(init) || Node.isFunctionExpression(init) || (Node.isCallExpression(init) && /(?:^|\.)(?:memo|forwardRef)$/.test(init.getExpression().getText()))) {
       // Check it returns JSX
-      const text = init.getText();
-      if (!/<[A-Z]/.test(text) && !/<[a-z]/.test(text) && !/return\s*\(/.test(text)) return;
+      if (!containsJsx(init)) return;
       result.components.push({
         name,
         filePath,
         route,
         lineNumber: decl.getStartLineNumber(),
-        isDefaultExport: false,
+        isDefaultExport: sourceFile.getExportAssignments().some(e => e.getExpression().getText() === name),
         interactionCount: 0,
       });
+    }
+  });
+  sourceFile.getClasses().forEach(cls => {
+    if (!cls.getMethod("render") || !containsJsx(cls)) return;
+    result.components.push({ name: cls.getName() ?? defaultComponentName(cls), filePath, route, lineNumber: cls.getStartLineNumber(), isDefaultExport: cls.isDefaultExport(), interactionCount: 0 });
+  });
+  sourceFile.getExportAssignments().forEach(assignment => {
+    const expression = assignment.getExpression();
+    if ((Node.isArrowFunction(expression) || Node.isFunctionExpression(expression)) && containsJsx(expression)) {
+      result.components.push({ name: defaultComponentName(assignment), filePath, route, lineNumber: assignment.getStartLineNumber(), isDefaultExport: true, interactionCount: 0 });
     }
   });
 }
@@ -260,16 +355,17 @@ function detectJsxInteractions(
   result: ParsedFileResult
 ): void {
   const fileName = filePath.split("/").pop() || filePath;
+  const positions = new Map(sourceFile.getDescendants().filter(n => Node.isJsxOpeningElement(n) || Node.isJsxSelfClosingElement(n)).map((node, index) => [node.getStart(), index]));
 
   // Process JsxElements (open + close tags)
   sourceFile.getDescendantsOfKind(SyntaxKind.JsxElement).forEach((jsxEl) => {
     const opening = jsxEl.getOpeningElement();
-    processJsxElement(opening, jsxEl, filePath, route, fileName, result);
+    processJsxElement(opening, jsxEl, filePath, route, fileName, result, positions.get(opening.getStart()) ?? 0);
   });
 
   // Process JsxSelfClosingElements (<Input onChange={...} />)
   sourceFile.getDescendantsOfKind(SyntaxKind.JsxSelfClosingElement).forEach((jsxEl) => {
-    processJsxElement(jsxEl, jsxEl, filePath, route, fileName, result);
+    processJsxElement(jsxEl, jsxEl, filePath, route, fileName, result, positions.get(jsxEl.getStart()) ?? 0);
   });
 }
 
@@ -279,12 +375,29 @@ function processJsxElement(
   filePath: string,
   route: string,
   fileName: string,
-  result: ParsedFileResult
+  result: ParsedFileResult,
+  jsxIndex: number
 ): void {
   try {
     const tagName = opening.getTagNameNode().getText();
     const lineNumber = opening.getStartLineNumber();
     const componentName = getContainingComponentName(opening);
+    if (getJsxAttrString(opening, "disabled") === "true" || getJsxAttrString(opening, "aria-disabled") === "true") return;
+    const column = sourceFileColumn(opening);
+    const emit = (interaction: DetectedInteraction, attribute?: string) => {
+      const handlerAttribute = attribute ?? ({ form_submit: "onSubmit", input_change: "onChange", input_focus: "onFocus", input_blur: "onBlur", selection_change: getJsxAttrString(opening, "onValueChange") ? "onValueChange" : "onChange", checkbox_change: "onChange", tab_change: getJsxAttrString(opening, "onValueChange") ? "onValueChange" : "onChange", modal_open: getJsxAttrString(opening, "onOpenChange") ? "onOpenChange" : "onOpen", modal_close: "onClose" } as Partial<Record<InteractionType, string>>)[interaction.type] ?? "onClick";
+      result.interactions.push({ ...interaction, metadata: { ...interaction.metadata, tagName, fileName, sourceColumn: column, elementIndex: jsxIndex, handlerAttribute,
+        siteId: `${filePath}::${componentName}::${jsxIndex}::${handlerAttribute}`, ...semanticContext(opening, handlerAttribute, componentName) } });
+    };
+
+    // Keyboard handlers may coexist with pointer/value callbacks.
+    for (const attribute of ["onKeyDown", "onKeyUp", "onKeyPress"]) {
+      const value = getJsxAttrString(opening, attribute);
+      if (!value) continue;
+      const handler = extractHandlerName(value);
+      const label = extractLabel(getJsxTextContent(fullNode), getJsxAttrString(opening, "aria-label"), undefined, undefined, undefined, handler, componentName);
+      emit({ type: "keyboard_interaction", label, eventName: generateEventName(label, handler, "keyboard_interaction"), handler, componentName, filePath, route, lineNumber, confidence: 0.9, detectionMethod: "jsx_keyboard_handler" }, attribute);
+    }
 
     // ── Button interactions ──────────────────────────────────
     if (BUTTON_TAGS.has(tagName) || BUTTON_LIKE_NAME_PATTERNS.some((p) => p.test(tagName))) {
@@ -296,10 +409,13 @@ function processJsxElement(
       const handler = extractHandlerName(onClickValue);
 
       // Only emit if there's a handler OR readable text
+      if (!BUTTON_TAGS.has(tagName) && !onClickValue) return;
       if (!onClickValue && !jsxText && !ariaLabel) return;
+      const parentForm = opening.getAncestors().some(n => Node.isJsxElement(n) && n.getOpeningElement().getTagNameNode().getText() === "form");
+      if (tagName === "button" && parentForm && typeAttr !== "button" && typeAttr !== "reset" && !onClickValue) return;
 
       const label = extractLabel(jsxText, ariaLabel, title, undefined, undefined, handler, componentName);
-      let interactionType: InteractionType = typeAttr === "submit" ? "form_submit" : "button_click";
+      let interactionType: InteractionType = "button_click";
       interactionType = classifyInteractionType(interactionType, label, handler, tagName);
 
       const confidence = BUTTON_TAGS.has(tagName)
@@ -310,7 +426,7 @@ function processJsxElement(
         ? "jsx_button_handler"
         : "custom_component_handler";
 
-      result.interactions.push({
+      emit({
         type: interactionType,
         label,
         eventName: generateEventName(label, handler, interactionType),
@@ -334,7 +450,7 @@ function processJsxElement(
       const ariaLabel = getJsxAttrString(opening, "aria-label");
       const label = extractLabel(jsxText, ariaLabel, undefined, undefined, undefined, handler, componentName);
 
-      result.interactions.push({
+      emit({
         type: "form_submit",
         label: label || "Form Submit",
         eventName: generateEventName(label, handler, "form_submit"),
@@ -355,14 +471,14 @@ function processJsxElement(
       const href = getJsxAttrString(opening, "href");
       if (!href) return;
       // Skip external links
-      if (href.startsWith("http") || href.startsWith("mailto:") || href.startsWith("#")) return;
+      if (/^(?:javascript|data|mailto|tel):/i.test(href)) return;
 
       const jsxText = getJsxTextContent(fullNode);
       const ariaLabel = getJsxAttrString(opening, "aria-label");
       const label = extractLabel(jsxText, ariaLabel, undefined, undefined, undefined, undefined, href);
       const isNextLink = tagName === "Link";
 
-      result.interactions.push({
+      emit({
         type: "navigation",
         label: label || href,
         eventName: generateEventName(label, "", "navigation"),
@@ -396,11 +512,16 @@ function processJsxElement(
       if (!onChange && !onBlur && !onFocus) return;
 
       const label = extractLabel(undefined, ariaLabel, placeholder, name, id, undefined, componentName);
+      for (const [attribute, type] of [["onFocus", "input_focus"], ["onBlur", "input_blur"]] as const) {
+        const value = getJsxAttrString(opening, attribute);
+        if (value) emit({ type, label, eventName: `${generateEventName(label, extractHandlerName(value), type)}_${type === "input_focus" ? "focused" : "blurred"}`, handler: extractHandlerName(value), componentName, filePath, route, lineNumber, confidence: 0.85, detectionMethod: "jsx_input_handler" }, attribute);
+      }
 
       // Checkbox / Radio
       if (inputType === "checkbox" || inputType === "radio") {
+        if (!onChange) return;
         const handler = extractHandlerName(onChange);
-        result.interactions.push({
+        emit({
           type: inputType === "checkbox" ? "checkbox_change" : "selection_change",
           label: label || (inputType === "checkbox" ? "Checkbox" : "Radio"),
           eventName: generateEventName(label, handler, "checkbox_change"),
@@ -419,7 +540,7 @@ function processJsxElement(
       // Text / email / password inputs
       if (onChange) {
         const handler = extractHandlerName(onChange);
-        result.interactions.push({
+        emit({
           type: "input_change",
           label: label || "Input Field",
           eventName: generateEventName(label, handler, "input_change"),
@@ -445,7 +566,7 @@ function processJsxElement(
       const handler = extractHandlerName(onChange);
       const label = extractLabel(undefined, undefined, placeholder, name, undefined, handler, componentName);
 
-      result.interactions.push({
+      emit({
         type: "input_change",
         label: label || "Text Area",
         eventName: generateEventName(label, handler, "input_change"),
@@ -462,14 +583,14 @@ function processJsxElement(
     }
 
     // ── Select / Dropdown ────────────────────────────────────
-    if (tagName === "select" || tagName === "Select" || tagName === "SelectTrigger") {
+    if (tagName === "select" || /^(Select|SelectTrigger|Dropdown|Accordion)$/.test(tagName)) {
       const onChange = getJsxAttrString(opening, "onChange") || getJsxAttrString(opening, "onValueChange");
       if (!onChange) return;
       const name = getJsxAttrString(opening, "name");
       const handler = extractHandlerName(onChange);
       const label = extractLabel(undefined, undefined, undefined, name, undefined, handler, componentName);
 
-      result.interactions.push({
+      emit({
         type: "selection_change",
         label: label || "Select",
         eventName: generateEventName(label, handler, "selection_change"),
@@ -493,7 +614,7 @@ function processJsxElement(
       const jsxText = getJsxTextContent(fullNode);
       const label = extractLabel(jsxText, undefined, undefined, undefined, undefined, handler, componentName);
 
-      result.interactions.push({
+      emit({
         type: "tab_change",
         label: label || "Tab",
         eventName: generateEventName(label, handler, "tab_change"),
@@ -522,11 +643,14 @@ function processJsxElement(
       const jsxText = getJsxTextContent(fullNode);
       const label = extractLabel(jsxText, undefined, undefined, undefined, undefined, handler, tagName);
 
-      result.interactions.push({
-        type: onClose ? "modal_close" : "modal_open",
+      for (const [attribute, type] of [[onOpen ? (getJsxAttrString(opening, "onOpenChange") ? "onOpenChange" : "onOpen") : "", "modal_open"], [onClose ? "onClose" : "", "modal_close"]] as const) {
+      if (!attribute) continue;
+      const value = getJsxAttrString(opening, attribute);
+      emit({
+        type,
         label: label || tagName,
-        eventName: generateEventName(label, handler, onClose ? "modal_close" : "modal_open"),
-        handler,
+        eventName: type,
+        handler: extractHandlerName(value),
         componentName,
         filePath,
         route,
@@ -534,13 +658,14 @@ function processJsxElement(
         confidence: 0.75,
         detectionMethod: "jsx_modal_handler",
         metadata: { tagName, open, fileName },
-      });
+      }, attribute);
+      }
       return;
     }
 
     // ── Generic: Any JSX with onClick ────────────────────────
     const onClickValue = getJsxAttrString(opening, "onClick");
-    if (onClickValue && /^[A-Z]/.test(tagName)) {
+    if (onClickValue) {
       const handler = extractHandlerName(onClickValue);
       const jsxText = getJsxTextContent(fullNode);
       const ariaLabel = getJsxAttrString(opening, "aria-label");
@@ -548,7 +673,7 @@ function processJsxElement(
       let type: InteractionType = "button_click";
       type = classifyInteractionType(type, label, handler, tagName);
 
-      result.interactions.push({
+      emit({
         type,
         label: label || tagName,
         eventName: generateEventName(label, handler, type),
@@ -563,6 +688,10 @@ function processJsxElement(
       });
     }
   } catch { /* skip malformed JSX nodes */ }
+}
+
+function sourceFileColumn(node: Node): number {
+  return node.getSourceFile().getLineAndColumnAtPos(node.getStart()).column;
 }
 
 // ── Router Navigation Detection ──────────────────────────────
@@ -629,9 +758,11 @@ export interface BatchAnalysisInput {
  * Safe — never throws on individual file errors.
  */
 export function analyzeFiles(files: BatchAnalysisInput[]): ParsedFileResult[] {
+  const project = new Project({ useInMemoryFileSystem: true, skipLoadingLibFiles: true, compilerOptions: { jsx: 4, allowJs: true, moduleResolution: 2, target: 99 } });
+  for (const file of files) if (/\.(tsx|jsx|ts|js)$/.test(file.path)) project.createSourceFile(file.path, file.content, { overwrite: true });
   return files.map(({ path, content }) => {
     try {
-      return parseFile(path, content);
+      return parseFile(path, content, project);
     } catch (e: any) {
       return {
         filePath: path,

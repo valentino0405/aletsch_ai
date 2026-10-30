@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { getDbOrNull } from "@/lib/mongodb";
 import { ObjectId } from "mongodb";
+import { createInstrumentationPreview } from "@/lib/instrumentation/preview";
 
 export async function GET(req: Request) {
   try {
@@ -66,32 +67,14 @@ export async function GET(req: Request) {
       });
     }
 
-    // Dynamic generated preview diff
-    const originalCode = component.codeSnippet || `<button>Interacted</button>`;
-    const eventName = component.recommendedEvent || "cta_interacted";
-    
-    // Inject track event in preview code
-    let instrumentedCode = originalCode;
-    if (originalCode.includes("onClick")) {
-      instrumentedCode = originalCode.replace(
-        /onClick\s*=\s*\{([^}]+)\}/,
-        `onClick={(e) => { track("${eventName}"); $1(e); }}`
-      );
-    } else if (originalCode.includes("<button") || originalCode.includes("<Button")) {
-      instrumentedCode = originalCode.replace(
-        /<(button|Button)/,
-        `<$1 onClick={() => track("${eventName}")}`
-      );
+    if (typeof component.codeSnippet !== "string" || !component.codeSnippet.trim() || typeof component.recommendedEvent !== "string") {
+      return NextResponse.json({error:"No source snippet is available. Re-run analysis."},{status:404});
     }
-
-    const diff = `@@ -1,1 +1,4 @@\n-${originalCode}\n+${instrumentedCode}`;
-
-    return NextResponse.json({
-      filePath: component.filePath,
-      originalCode,
-      instrumentedCode,
-      diff
-    });
+    try {
+      return NextResponse.json(createInstrumentationPreview(String(component.filePath ?? "preview.tsx"),component.codeSnippet,component.recommendedEvent));
+    } catch (error) {
+      return NextResponse.json({error:error instanceof Error ? error.message : "Could not preview instrumentation."},{status:422});
+    }
   } catch (error: any) {
     console.error("Telemetry generator preview API error:", error);
     return NextResponse.json({ error: error.message || "Server Error" }, { status: 500 });

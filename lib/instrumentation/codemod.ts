@@ -28,6 +28,10 @@ export interface InstrumentationTarget {
   label: string;
   /** Literal properties baked into the generated call. */
   properties: Record<string, string>;
+  /** Structural location and actual event prop supplied by the AST pass. */
+  sourceColumn?: number;
+  elementIndex?: number;
+  handlerAttribute?: string;
 }
 
 export type SkipCode =
@@ -42,6 +46,7 @@ export interface AppliedEdit {
   eventName: string;
   lineNumber: number;
   attribute: string;
+  sourceColumn?: number;
   mode: "wrapped_existing_handler" | "added_handler";
 }
 
@@ -67,6 +72,8 @@ export interface FileInstrumentationResult {
 const ATTRIBUTE_BY_TYPE: Partial<Record<InteractionType, string>> = {
   form_submit: "onSubmit",
   input_change: "onChange",
+  input_focus: "onFocus",
+  input_blur: "onBlur",
   checkbox_change: "onChange",
   selection_change: "onChange",
   tab_change: "onValueChange",
@@ -76,6 +83,7 @@ const ATTRIBUTE_BY_TYPE: Partial<Record<InteractionType, string>> = {
 
 /** Candidate props, in preference order, for this element. */
 function handlerAttributeCandidates(target: InstrumentationTarget): string[] {
+  if (target.handlerAttribute && /^on[A-Z][A-Za-z]*$/.test(target.handlerAttribute)) return [target.handlerAttribute];
   const tag = target.tagName;
 
   if (target.interactionType === "form_submit" && /^(form|Form)$/.test(tag)) return ["onSubmit"];
@@ -97,6 +105,7 @@ function canAddHandler(target: InstrumentationTarget): boolean {
     target.interactionType === "navigation" ||
     target.interactionType === "authentication" ||
     target.interactionType === "repository_connection"
+    || target.interactionType === "form_submit"
   );
 }
 
@@ -109,6 +118,8 @@ interface JsxCandidate {
   line: number;
   tag: string;
   used: boolean;
+  column: number;
+  usedAttributes: Set<string>;
 }
 
 function collectJsxCandidates(sourceFile: ReturnType<Project["createSourceFile"]>): JsxCandidate[] {
@@ -121,6 +132,8 @@ function collectJsxCandidates(sourceFile: ReturnType<Project["createSourceFile"]
         line: element.getStartLineNumber(),
         tag: element.getTagNameNode().getText(),
         used: false,
+        column: element.getSourceFile().getLineAndColumnAtPos(element.getStart()).column,
+        usedAttributes: new Set(),
       });
     } catch {
       /* malformed node — ignore */
@@ -130,7 +143,7 @@ function collectJsxCandidates(sourceFile: ReturnType<Project["createSourceFile"]
   sourceFile.getDescendantsOfKind(SyntaxKind.JsxElement).forEach((el) => push(el.getOpeningElement()));
   sourceFile.getDescendantsOfKind(SyntaxKind.JsxSelfClosingElement).forEach(push);
 
-  return candidates;
+  return candidates.sort((a, b) => a.element.getStart() - b.element.getStart());
 }
 
 /**
@@ -141,15 +154,20 @@ function collectJsxCandidates(sourceFile: ReturnType<Project["createSourceFile"]
  * whitespace-only edit upstream should not silently drop an event.
  */
 function findElement(candidates: JsxCandidate[], target: InstrumentationTarget): JsxCandidate | null {
-  const exact = candidates.find((c) => !c.used && c.line === target.lineNumber && c.tag === target.tagName);
-  if (exact) return exact;
+  const available = (c: JsxCandidate) => !c.usedAttributes.has(handlerAttributeCandidates(target)[0]);
+  const positioned = candidates.find(c => c.line === target.lineNumber && c.tag === target.tagName && target.sourceColumn === c.column);
+  if (positioned) return available(positioned) ? positioned : null;
+  const exact = candidates.filter((c) => available(c) && c.line === target.lineNumber && c.tag === target.tagName);
+  if (exact.length === 1 && target.sourceColumn === undefined) return exact[0];
+  if (exact.length > 1) return null;
 
   const nearby = candidates
-    .filter((c) => !c.used && c.tag === target.tagName && Math.abs(c.line - target.lineNumber) <= 3)
+    .filter((c) => available(c) && c.tag === target.tagName && Math.abs(c.line - target.lineNumber) <= 3)
     .sort((a, b) => Math.abs(a.line - target.lineNumber) - Math.abs(b.line - target.lineNumber));
-  if (nearby.length > 0) return nearby[0];
+  if (nearby.length === 1) return nearby[0];
+  if (nearby.length > 1) return null;
 
-  const sameTag = candidates.filter((c) => !c.used && c.tag === target.tagName);
+  const sameTag = candidates.filter((c) => available(c) && c.tag === target.tagName);
   if (sameTag.length === 1) return sameTag[0];
 
   return null;
@@ -172,11 +190,11 @@ function renderProperties(properties: Record<string, string>): string {
   return entries.length > 0 ? `{ ${entries.join(", ")} }` : "{}";
 }
 
-function renderCall(target: InstrumentationTarget, existingExpression?: string): string {
+function renderCall(target: InstrumentationTarget, existingExpression?: string, localName = "trackEvent"): string {
   const properties = renderProperties(target.properties);
   const args = [JSON.stringify(target.eventName), properties];
   if (existingExpression) args.push(existingExpression);
-  return `trackEvent(${args.join(", ")})`;
+  return `${localName}(${args.join(", ")})`;
 }
 
 /** True when this element (or its file) already routes through Aletsch. */
@@ -218,15 +236,21 @@ function requiresClientDirective(framework: FrameworkDetection): boolean {
 
 function ensureTrackerImport(
   sourceFile: ReturnType<Project["createSourceFile"]>,
-  specifier: string
+  specifier: string,
+  localName = "trackEvent"
 ): void {
   const existing = sourceFile
     .getImportDeclarations()
     .find((declaration) => declaration.getModuleSpecifierValue() === specifier);
 
   if (existing) {
+    if (existing.isTypeOnly()) {
+      existing.setIsTypeOnly(false);
+      existing.getNamedImports().forEach(named => named.setIsTypeOnly(named.getName() !== "trackEvent"));
+    }
+    existing.getNamedImports().find(named => named.getName() === "trackEvent")?.setIsTypeOnly(false);
     const named = existing.getNamedImports().map((n) => n.getName());
-    if (!named.includes("trackEvent")) existing.addNamedImport("trackEvent");
+    if (!named.includes("trackEvent")) existing.addNamedImport({ name: "trackEvent", alias: localName === "trackEvent" ? undefined : localName });
     return;
   }
 
@@ -245,8 +269,18 @@ function ensureTrackerImport(
 
   sourceFile.insertImportDeclaration(index, {
     moduleSpecifier: specifier,
-    namedImports: ["trackEvent"],
+    namedImports: [{ name: "trackEvent", alias: localName === "trackEvent" ? undefined : localName }],
   });
+}
+
+function trackerBinding(sourceFile: ReturnType<Project["createSourceFile"]>, specifier: string): string {
+  const existing = sourceFile.getImportDeclarations().find(d => d.getModuleSpecifierValue() === specifier);
+  const named = existing?.getNamedImports().find(n => n.getName() === "trackEvent");
+  if (named) return named.getAliasNode()?.getText() ?? "trackEvent";
+  const taken = new Set(sourceFile.getDescendantsOfKind(SyntaxKind.Identifier).map(n => n.getText()));
+  let name = "trackEvent", index = 1;
+  while (taken.has(name)) name = index++ === 1 ? "aletschTrackEvent" : `aletschTrackEvent${index}`;
+  return name;
 }
 
 // ────────────────────────────────────────────────────────────
@@ -285,6 +319,7 @@ export function instrumentFile(
   try {
     project = new Project({
       useInMemoryFileSystem: true,
+      skipLoadingLibFiles: true,
       compilerOptions: {
         jsx: 4, // JsxEmit.ReactJSX — matches the detection pass
         allowJs: true,
@@ -294,6 +329,11 @@ export function instrumentFile(
       },
     });
     sourceFile = project.createSourceFile(filePath, content, { overwrite: true });
+    const diagnostics = project.getProgram().getSyntacticDiagnostics(sourceFile);
+    if (diagnostics.length) {
+      result.error = `Source contains syntax errors: ${diagnostics.map(d => d.getCode()).join(", ")}`;
+      return result;
+    }
   } catch (error: any) {
     result.error = `Could not parse ${filePath}: ${error?.message ?? "unknown error"}`;
     return result;
@@ -301,7 +341,10 @@ export function instrumentFile(
 
   const isClientModule = hasUseClientDirective(content) || !requiresClientDirective(options.framework);
   const candidates = collectJsxCandidates(sourceFile);
+  const specifier = options.importSpecifier ?? trackerImportSpecifier(options.framework, filePath);
+  const localName = trackerBinding(sourceFile, specifier);
   let mutated = false;
+  const replacements: {start: number; end: number; text: string}[] = [];
 
   // Bottom-up, so an edit never shifts the line numbers of a target we
   // have not reached yet.
@@ -330,6 +373,10 @@ export function instrumentFile(
       const existing = named.find((attribute) => preferences.includes(attribute.getNameNode().getText()));
 
       if (existing) {
+        if (attributes.slice(attributes.indexOf(existing) + 1).some(Node.isJsxSpreadAttribute)) {
+          result.skipped.push({ eventName: target.eventName, lineNumber: target.lineNumber, code: "spread_handler", reason: "A trailing props spread may replace this handler at runtime." });
+          continue;
+        }
         const initializer = existing.getInitializer();
         const attributeName = existing.getNameNode().getText();
 
@@ -355,7 +402,10 @@ export function instrumentFile(
         }
 
         const innerText = inner.getText();
-        if (alreadyInstrumented(innerText, target.eventName)) {
+        const wrapped = Node.isCallExpression(inner) && inner.getExpression().getText() === localName;
+        const originalHandler = wrapped ? inner.getArguments()[2]?.getText() : innerText;
+        const desired = renderCall(target, originalHandler, localName);
+        if ((wrapped && desired === innerText) || (!wrapped && alreadyInstrumented(innerText, target.eventName))) {
           result.skipped.push({
             eventName: target.eventName,
             lineNumber: target.lineNumber,
@@ -363,16 +413,19 @@ export function instrumentFile(
             reason: `${attributeName} already emits ${target.eventName}.`,
           });
           candidate.used = true;
+          candidate.usedAttributes.add(attributeName);
           continue;
         }
 
-        existing.setInitializer(`{${renderCall(target, innerText)}}`);
+        replacements.push({start: initializer.getStart(), end: initializer.getEnd(), text: `{${desired}}`});
         candidate.used = true;
+        candidate.usedAttributes.add(attributeName);
         mutated = true;
         result.applied.push({
           eventName: target.eventName,
           lineNumber: target.lineNumber,
           attribute: attributeName,
+          sourceColumn: candidate.column,
           mode: "wrapped_existing_handler",
         });
         continue;
@@ -413,16 +466,16 @@ export function instrumentFile(
         continue;
       }
 
-      element.addAttribute({
-        name: preferences[0],
-        initializer: `{${renderCall(target)}}`,
-      });
+      const insertAt = element.getEnd() - (Node.isJsxSelfClosingElement(element) ? 2 : 1);
+      replacements.push({start: insertAt, end: insertAt, text: ` ${preferences[0]}={${renderCall(target, undefined, localName)}}`});
       candidate.used = true;
+      candidate.usedAttributes.add(preferences[0]);
       mutated = true;
       result.applied.push({
         eventName: target.eventName,
         lineNumber: target.lineNumber,
         attribute: preferences[0],
+        sourceColumn: candidate.column,
         mode: "added_handler",
       });
     } catch (error: any) {
@@ -438,8 +491,12 @@ export function instrumentFile(
   if (!mutated) return result;
 
   try {
-    const specifier = options.importSpecifier ?? trackerImportSpecifier(options.framework, filePath);
-    ensureTrackerImport(sourceFile, specifier);
+    // Every range comes from the original AST. Apply once, from right to left,
+    // so ts-morph does not reparse the entire file for each event prop.
+    let changed = content;
+    for (const edit of replacements.sort((a,b) => b.start-a.start)) changed = changed.slice(0,edit.start)+edit.text+changed.slice(edit.end);
+    sourceFile.replaceWithText(changed);
+    ensureTrackerImport(sourceFile, specifier, localName);
     const output = sourceFile.getFullText();
     result.instrumentedContent = output;
     result.unchanged = output === content;
@@ -475,69 +532,70 @@ export function injectProvider(
   layoutContent: string,
   providerImportSpecifier: string
 ): ProviderInjectionResult {
-  if (layoutContent.includes("AletschAnalytics")) {
-    return { content: layoutContent, injected: false, reason: "The layout already mounts AletschAnalytics." };
-  }
-
-  let project: Project;
+  const project = new Project({ useInMemoryFileSystem: true, skipLoadingLibFiles: true, compilerOptions: { jsx: 4, allowJs: true, target: 99 } });
   let sourceFile: ReturnType<Project["createSourceFile"]>;
   try {
-    project = new Project({
-      useInMemoryFileSystem: true,
-      compilerOptions: { jsx: 4, allowJs: true, target: 99 },
-    });
     sourceFile = project.createSourceFile(layoutPath, layoutContent, { overwrite: true });
-  } catch (error: any) {
-    return { content: layoutContent, injected: false, reason: `Could not parse the layout: ${error?.message}` };
+    if (project.getProgram().getSyntacticDiagnostics(sourceFile).length) return { content: layoutContent, injected: false, reason: "The layout contains syntax errors." };
+  } catch (error) {
+    return { content: layoutContent, injected: false, reason: "Could not parse the layout: " + String(error) };
   }
-
-  const elements = sourceFile.getDescendantsOfKind(SyntaxKind.JsxElement);
-  if (elements.length === 0) {
-    return { content: layoutContent, injected: false, reason: "No JSX element found in the layout." };
+  const existingImport = sourceFile.getImportDeclarations().find(d => d.getModuleSpecifierValue() === providerImportSpecifier);
+  const taken = new Set(sourceFile.getDescendantsOfKind(SyntaxKind.Identifier).map(n => n.getText()));
+  let providerName = existingImport?.getDefaultImport()?.getText() ?? "AletschAnalytics";
+  if (!existingImport?.getDefaultImport()) {
+    let index = 1;
+    while (taken.has(providerName)) providerName = "AletschAnalyticsProvider" + (index++ === 1 ? "" : index);
   }
-
-  const body = elements.find((element) => element.getOpeningElement().getTagNameNode().getText() === "body");
-  // Outermost element = the one with the fewest ancestors.
-  const host =
-    body ??
-    elements.reduce((outermost, element) =>
-      element.getAncestors().length < outermost.getAncestors().length ? element : outermost
-    );
-
-  // The child is spliced in at the closing tag's offset. That offset
-  // comes from the AST rather than a regex, so it is exact.
-  const insertOffset = host.getClosingElement().getStart();
-  const closingIndent = " ".repeat(host.getIndentationLevel() * 2);
-  const updated =
-    layoutContent.slice(0, insertOffset) +
-    `<AletschAnalytics />\n${closingIndent}` +
-    layoutContent.slice(insertOffset);
-
-  // Re-parse the spliced text and add the import through the AST.
-  try {
-    const withChild = project.createSourceFile(`${layoutPath}.staged`, updated, { overwrite: true });
-    const statements = withChild.getStatements();
-    let index = 0;
-    while (index < statements.length) {
-      const statement = statements[index];
-      const isDirective =
-        Node.isExpressionStatement(statement) && Node.isStringLiteral(statement.getExpression());
-      if (!isDirective) break;
-      index++;
+  const defaultFunction = sourceFile.getFunctions().find(f => f.isDefaultExport())
+    ?? sourceFile.getFunctions().find(f => /^(App|RootLayout|Root)$/.test(f.getName() ?? ""));
+  const assignment = sourceFile.getExportAssignments()[0]?.getExpression();
+  let root: Node | undefined;
+  if (defaultFunction) {
+    root = defaultFunction.getDescendantsOfKind(SyntaxKind.ReturnStatement)
+      .find(r => r.getFirstAncestorByKind(SyntaxKind.FunctionDeclaration) === defaultFunction)?.getExpression();
+  } else if (assignment && (Node.isArrowFunction(assignment) || Node.isFunctionExpression(assignment))) {
+    const body = assignment.getBody();
+    root = Node.isBlock(body) ? body.getDescendantsOfKind(SyntaxKind.ReturnStatement)[0]?.getExpression() : body;
+  } else if (assignment && Node.isIdentifier(assignment)) {
+    const declaration = sourceFile.getVariableDeclaration(assignment.getText());
+    const initializer = declaration?.getInitializer();
+    if (initializer && (Node.isArrowFunction(initializer) || Node.isFunctionExpression(initializer))) {
+      const body = initializer.getBody();
+      root = Node.isBlock(body) ? body.getDescendantsOfKind(SyntaxKind.ReturnStatement)[0]?.getExpression() : body;
     }
-    while (index < statements.length && Node.isImportDeclaration(statements[index])) index++;
-
-    withChild.insertImportDeclaration(index, {
-      moduleSpecifier: providerImportSpecifier,
-      defaultImport: "AletschAnalytics",
-    });
-
+  }
+  while (root && Node.isParenthesizedExpression(root)) root = root.getExpression();
+  root ??= sourceFile.getDescendants().find(n => (Node.isJsxElement(n) || Node.isJsxSelfClosingElement(n) || Node.isJsxFragment(n)) && !n.getFirstAncestorByKind(SyntaxKind.FunctionDeclaration));
+  if (!root) return { content: layoutContent, injected: false, reason: "No supported JSX root found in the layout." };
+  const allNodes = [root, ...root.getDescendants()];
+  if (allNodes.some(n => (Node.isJsxOpeningElement(n) || Node.isJsxSelfClosingElement(n)) && n.getTagNameNode().getText() === providerName)) {
+    return { content: layoutContent, injected: false, reason: "The layout already mounts AletschAnalytics." };
+  }
+  const body = allNodes.find(n => Node.isJsxElement(n) && n.getOpeningElement().getTagNameNode().getText() === "body");
+  const host = body ?? root;
+  let updated: string;
+  if (Node.isJsxElement(host) || Node.isJsxFragment(host)) {
+    const closing = Node.isJsxElement(host) ? host.getClosingElement() : host.getClosingFragment();
+    updated = layoutContent.slice(0, closing.getStart()) + "<" + providerName + " />\n" + layoutContent.slice(closing.getStart());
+  } else if (Node.isJsxSelfClosingElement(host)) {
+    updated = layoutContent.slice(0, host.getStart()) + "<>" + host.getText() + "<" + providerName + " /></>" + layoutContent.slice(host.getEnd());
+  } else return { content: layoutContent, injected: false, reason: "The root expression cannot be mounted safely." };
+  try {
+    const withChild = project.createSourceFile(layoutPath, updated, { overwrite: true });
+    const existing = withChild.getImportDeclarations().find(d => d.getModuleSpecifierValue() === providerImportSpecifier);
+    if (existing) {
+      if (!existing.getDefaultImport()) existing.setDefaultImport(providerName);
+    } else {
+      const statements = withChild.getStatements();
+      let index = 0;
+      while (index < statements.length && Node.isExpressionStatement(statements[index]) && Node.isStringLiteral((statements[index] as import("ts-morph").ExpressionStatement).getExpression())) index++;
+      while (index < statements.length && Node.isImportDeclaration(statements[index])) index++;
+      withChild.insertImportDeclaration(index, { moduleSpecifier: providerImportSpecifier, defaultImport: providerName });
+    }
+    if (project.getProgram().getSyntacticDiagnostics(withChild).length) return { content: layoutContent, injected: false, reason: "Provider injection generated invalid syntax." };
     return { content: withChild.getFullText(), injected: true };
-  } catch (error: any) {
-    return {
-      content: layoutContent,
-      injected: false,
-      reason: `Could not add the AletschAnalytics import: ${error?.message}`,
-    };
+  } catch (error) {
+    return { content: layoutContent, injected: false, reason: "Could not add the provider: " + String(error) };
   }
 }

@@ -14,8 +14,23 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Aletsch AI - Auto-Instrumented Analytics for AI-Built Apps",
-  description: "Futuristic auto-instrumented analytics dashboard and insights for applications built by AI.",
+  title: "Aletsch AI — Analytics that instruments itself",
+  description:
+    "Connect your GitHub repo and Aletsch AI reads your component tree, auto-generates event instrumentation, and turns clicks into funnels, retention and AI insights — no manual tracking code, and never a fabricated number.",
+  keywords: [
+    "product analytics",
+    "auto-instrumentation",
+    "GitHub analytics",
+    "funnel analysis",
+    "AI analytics",
+    "event tracking",
+  ],
+  openGraph: {
+    title: "Aletsch AI — Analytics that instruments itself",
+    description:
+      "Auto-instrumented product analytics for AI-built apps. Connect a repo; get funnels, retention and insights from real counted events.",
+    type: "website",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -90,7 +90,7 @@ const SECRET_RULES: SecretRule[] = [
     kind: "credential_assignment",
     // FOO_SECRET = "value" / FOO_TOKEN: 'value' — captures only the value.
     pattern:
-      /\b[A-Za-z0-9_]*(?:SECRET|PASSWORD|PASSWD|TOKEN|API[_-]?KEY|ACCESS[_-]?KEY|PRIVATE[_-]?KEY|CLIENT[_-]?SECRET|AUTH[_-]?KEY)[A-Za-z0-9_]*\s*[:=]\s*["']?([^\s"',;}]{8,})["']?/gi,
+      /\b[A-Za-z0-9_]*(?:SECRET|PASSWORD|PASSWD|TOKEN|API[_-]?KEY|ACCESS[_-]?KEY|PRIVATE[_-]?KEY|CLIENT[_-]?SECRET|AUTH[_-]?KEY)[A-Za-z0-9_]*[ \t]*[:=][ \t]*["']?([^\s"',;}]{8,})["']?/gi,
     group: 1,
   },
 ];

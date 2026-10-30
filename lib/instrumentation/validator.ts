@@ -115,12 +115,16 @@ function countOccurrences(haystack: string, needle: string): number {
 }
 
 function directiveIsFirst(content: string): boolean {
-  const match = content.match(/["']use (client|server)["']/);
-  if (!match) return true;
-  const before = content.slice(0, match.index ?? 0);
-  // Only comments and whitespace may precede a directive prologue.
-  const stripped = before.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "").trim();
-  return stripped === "";
+  const project = new Project({useInMemoryFileSystem: true, skipLoadingLibFiles: true, compilerOptions: {jsx: 4}});
+  const file = project.createSourceFile("directive.tsx", content);
+  let prologue = true;
+  for (const statement of file.getStatements()) {
+    const expression = Node.isExpressionStatement(statement) ? statement.getExpression() : undefined;
+    if (expression && Node.isStringLiteral(expression)) {
+      if (/^use (client|server)$/.test(expression.getLiteralValue()) && !prologue) return false;
+    } else prologue = false;
+  }
+  return true;
 }
 
 /** Validates one instrumented file against its original. */
@@ -221,7 +225,7 @@ export function validateInstrumentedFile(result: FileInstrumentationResult): Fil
   // 6. The same event should not be emitted twice from one element.
   const duplicates = new Map<string, number>();
   for (const edit of result.applied) {
-    const key = `${edit.lineNumber}:${edit.eventName}`;
+    const key = `${edit.lineNumber}:${edit.sourceColumn ?? ""}:${edit.attribute}:${edit.eventName}`;
     duplicates.set(key, (duplicates.get(key) ?? 0) + 1);
   }
   for (const [key, count] of duplicates) {
@@ -229,7 +233,7 @@ export function validateInstrumentedFile(result: FileInstrumentationResult): Fil
       issues.push({
         severity: "error",
         code: "duplicate_event",
-        message: `${key.split(":")[1]} is emitted ${count} times from the same element.`,
+        message: `${key.split(":").at(-1)} is emitted ${count} times from the same element.`,
         filePath,
         line: Number(key.split(":")[0]),
       });

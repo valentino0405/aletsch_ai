@@ -147,6 +147,9 @@ function buildTargets(events: GeneratedEvent[]): Map<string, InstrumentationTarg
         componentName: site.componentName,
         label: site.label,
         properties,
+        sourceColumn: typeof site.metadata?.sourceColumn === "number" ? site.metadata.sourceColumn : undefined,
+        elementIndex: typeof site.metadata?.elementIndex === "number" ? site.metadata.elementIndex : undefined,
+        handlerAttribute: typeof site.metadata?.handlerAttribute === "string" ? site.metadata.handlerAttribute : undefined,
       });
       byFile.set(site.filePath, list);
     }
@@ -298,20 +301,24 @@ export async function buildChangeSet(options: BuildChangeSetOptions): Promise<Ch
 
   const layoutPath = findLayoutPath(framework, repoFilePaths);
   if (layoutPath) {
-    const layoutContent = await options.readFile(layoutPath);
+    const previousLayout = files.find(file => file.path === layoutPath);
+    const layoutContent = previousLayout?.content ?? await options.readFile(layoutPath);
     if (layoutContent !== null) {
       const specifier = relativeSpecifier(layoutPath, providerComponentPath(framework).replace(/\.(tsx|jsx)$/, ""));
       const injection = injectProvider(layoutPath, layoutContent, specifier);
 
       if (injection.injected) {
+        const originalLayout = await options.readFile(layoutPath) ?? layoutContent;
+        const previousIndex = files.findIndex(file => file.path === layoutPath);
+        const previous = previousIndex >= 0 ? files.splice(previousIndex, 1)[0] : undefined;
         files.push({
           path: layoutPath,
           purpose: "Mounts the analytics provider so page views are recorded automatically.",
           isNew: false,
           content: injection.content,
-          diff: createFileDiff(layoutContent, injection.content, { filePath: layoutPath }),
-          applied: [],
-          skipped: [],
+          diff: createFileDiff(originalLayout, injection.content, { filePath: layoutPath }),
+          applied: previous?.applied ?? [],
+          skipped: previous?.skipped ?? [],
         });
         instrumentationResults.push({
           filePath: layoutPath,

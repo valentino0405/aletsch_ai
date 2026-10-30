@@ -27,6 +27,7 @@ export function detectRouteFromPath(filePath: string): string {
 
   // --- App Router ---
   if (stripped.startsWith("app/")) {
+    if (!/(^|\/)(page|layout|loading|error|not-found|template)\.(tsx|ts|jsx|js)$/.test(stripped)) return "(component)";
     let route = stripped.replace(/^app\//, "");
 
     // Remove file name (page.tsx, layout.tsx, loading.tsx, etc.)
@@ -38,8 +39,15 @@ export function detectRouteFromPath(filePath: string): string {
     }
 
     // Remove Next.js route groups like (auth), (marketing)
-    route = route.replace(/\/\([^)]+\)/g, "");
-    route = route.replace(/^\([^)]+\)\//, "");
+    const segments: string[] = [];
+    for (let segment of route.split("/")) {
+      if (!segment || segment.startsWith("@") || /^\([^)]+\)$/.test(segment) || segment.startsWith("_")) continue;
+      if (segment.startsWith("(...)")) { segments.length = 0; segment = segment.slice(5); }
+      while (segment.startsWith("(..)")) { segments.pop(); segment = segment.slice(4); }
+      if (segment.startsWith("(.)")) segment = segment.slice(3);
+      if (segment) segments.push(segment);
+    }
+    route = segments.join("/");
 
     // Clean trailing slash from empty groups
     route = route.replace(/\/$/, "");
@@ -55,12 +63,11 @@ export function detectRouteFromPath(filePath: string): string {
     route = route.replace(/\.(tsx|ts|jsx|js)$/, "");
 
     // index → /
-    if (route === "index" || route === "_app" || route === "_document") {
-      return route === "index" ? "/" : `/_${route.replace("_", "")}`;
-    }
+    if (route === "index") return "/";
 
     // _app and _document are not real routes
-    if (route.startsWith("_")) return "(internal)";
+    if (route.startsWith("_") || route.startsWith("api/")) return "(internal)";
+    route = route.replace(/\/index$/, "");
 
     return `/${route}`;
   }
@@ -78,8 +85,7 @@ export function isPageFile(filePath: string): boolean {
   if (normalized.match(/app\/.*\/(page|layout)\.(tsx|ts|jsx|js)$/)) return true;
   if (normalized.match(/^app\/(page|layout)\.(tsx|ts|jsx|js)$/)) return true;
   // Pages Router
-  if (normalized.match(/pages\/[^_][^/]*\.(tsx|ts|jsx|js)$/)) return true;
-  if (normalized.match(/pages\/[^_][^/]+\/[^/]+\.(tsx|ts|jsx|js)$/)) return true;
+  if (/^pages\/(?!api\/)(?!_).*\.(tsx|ts|jsx|js)$/.test(normalized)) return true;
   return false;
 }
 

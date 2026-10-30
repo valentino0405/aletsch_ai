@@ -1150,7 +1150,7 @@ npm install
 Create:
 
 ```bash
-.env.local
+.env
 ```
 
 Add:
@@ -1179,8 +1179,12 @@ http://localhost:3000
 
 # 🔒 Environment Variables
 
-Copy `.env.example` to `.env.local` and fill it in. Only the first group is
+Copy `.env.example` to `.env` and fill it in. Only the first group is
 required to boot the app; the rest unlock individual features.
+
+Only use `NEXT_PUBLIC_` for publishable keys and public configuration. These
+values are included in browser bundles; keep private credentials in variables
+without that prefix.
 
 ### Required
 
@@ -1225,7 +1229,7 @@ hides repositories it will not let the token see.
 | `NEXT_PUBLIC_POSTHOG_HOST` | PostHog host (defaults to PostHog Cloud) |
 | `VERIFY_BASE_URL` | Base URL the `scripts/verify-*` checks run against (defaults to `http://localhost:3000`) |
 
-**Never commit `.env.local` or production secrets to Git.**
+**Never commit `.env`, `.env.local`, or production secrets to Git.**
 
 ---
 

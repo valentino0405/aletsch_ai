@@ -215,6 +215,49 @@ const SESSION_KEY = "aletsch.session";
 const DISTINCT_ID_KEY = "aletsch.distinct_id";
 const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
 ${types}
+let ephemeralSession = "";
+let ephemeralDistinct = "";
+let ephemeralActivity = 0;
+let consent${ts ? ": boolean | undefined" : ""};
+let lastPagePath = "";
+const emittedInteractions${ts ? ": WeakMap<object, Set<string>>" : ""} = new WeakMap();
+const REQUIRE_CONSENT = ${envExpression(options.framework, "ALETSCH_REQUIRE_CONSENT", ts)} === "true";
+
+/** Connect your consent manager here when consent is required. */
+export function setAnalyticsConsent(granted${ts ? ": boolean" : ""}) {
+  consent = granted === true;
+  lastPagePath = "";
+  try { window.dispatchEvent(new Event("aletsch:consent")); } catch { /* optional provider notification */ }
+}
+
+export function analyticsEnabled()${ts ? ": boolean" : ""} {
+  try {
+    if (!isBrowser() || consent === false || (REQUIRE_CONSENT && consent !== true)) return false;
+    if (typeof navigator !== "undefined" && (navigator.doNotTrack === "1" || ${ts ? "(navigator as any)" : "navigator"}.globalPrivacyControl === true)) return false;
+    return true;
+  } catch { return false; }
+}
+
+${String.raw`function privateValue(value${ts ? ": string" : ""}) {
+  return /\b(?:gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{16,}|(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}|xox[baprs]-[A-Za-z0-9-]{10,}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35})|PRIVATE KEY|\b[a-z][a-z0-9+.-]{0,20}:\/\/[^\s/:]+:[^\s@]+@|\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(value);
+}
+
+/** Only bounded scalar metadata leaves the browser. Never pass field values. */
+function safeProperties(raw${ts ? ": TrackProperties" : ""}) {
+  const safe${ts ? ": TrackProperties" : ""} = {};
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return safe;
+  for (const [key, value] of Object.entries(raw).slice(0, 40)) {
+    if (/password|passwd|secret|token|api.?key|access.?key|private.?key|credential|authorization|bearer|cookie|ssn|card.?number|credit.?card|cvv|cvc|\bpin\b|otp|mfa|email|phone|address|first.?name|last.?name|full.?name|^value$|^input$|^formData$|^__proto__$|^constructor$|^prototype$|[.$]/i.test(key)) continue;
+    if (typeof value === "string" && !privateValue(value)) safe[key.slice(0, 80)] = value.split("?")[0].split("#")[0].slice(0, 500);
+    else if (typeof value === "boolean" || (typeof value === "number" && Number.isFinite(value))) safe[key.slice(0, 80)] = value;
+  }
+  return safe;
+}
+
+function pathOnly(value${ts ? ": string" : ""}) {
+  try { return new URL(value, window.location.origin).pathname; } catch { return "/"; }
+}
+`}
 function isBrowser()${ts ? ": boolean" : ""} {
   return typeof window !== "undefined" && typeof document !== "undefined";
 }
@@ -246,7 +289,10 @@ function getSessionId()${ts ? ": string" : ""} {
     window.sessionStorage.setItem(SESSION_KEY, JSON.stringify({ id: id, at: now }));
     return id;
   } catch (error) {
-    return "unavailable";
+    const now = Date.now();
+    if (!ephemeralSession || now - ephemeralActivity >= SESSION_TIMEOUT_MS) ephemeralSession = randomId();
+    ephemeralActivity = now;
+    return ephemeralSession;
   }
 }
 
@@ -261,13 +307,16 @@ function getDistinctId()${ts ? ": string" : ""} {
     }
     return id;
   } catch (error) {
-    return "anon_ephemeral";
+    if (!ephemeralDistinct) ephemeralDistinct = "anon_" + randomId();
+    return ephemeralDistinct;
   }
 }
 
 /** Associates subsequent events with your own user identifier. */
 export function identify(userId${ts ? ": string" : ""}, traits${ts ? "?: TrackProperties" : ""}) {
-  if (!isBrowser() || !userId) return;
+  if (!analyticsEnabled() || !userId || privateValue(userId)) return;
+  traits = safeProperties(traits || {});
+  ephemeralDistinct = userId;
   try {
     window.localStorage.setItem(DISTINCT_ID_KEY, userId);
   } catch (error) {
@@ -278,6 +327,7 @@ ${postHogIdentify}}
 function send(eventName${ts ? ": string" : ""}, properties${ts ? ": TrackProperties" : ""}) {
   if (!isBrowser()) return;
 
+  try {
   const payload = {
     projectId: PROJECT_ID,
     writeKey: WRITE_KEY,
@@ -287,12 +337,11 @@ function send(eventName${ts ? ": string" : ""}, properties${ts ? ": TrackPropert
     timestamp: new Date().toISOString(),
     // Path only. Query strings routinely carry tokens, emails and other
     // personal data, so they are dropped before the event leaves.
-    path: window.location.pathname,
-    referrer: document.referrer || "",
+    path: pathOnly(window.location.pathname),
+    referrer: document.referrer ? new URL(document.referrer).origin : "",
     properties: properties,
   };
 
-  try {
     const body = JSON.stringify(payload);
     // sendBeacon survives page unload, which plain fetch does not —
     // that matters for navigation and form-submit events.
@@ -315,7 +364,9 @@ function send(eventName${ts ? ": string" : ""}, properties${ts ? ": TrackPropert
 
 /** Records that something happened. Never throws, never blocks. */
 export function track(eventName${ts ? ": string" : ""}, properties${ts ? ": TrackProperties = {}" : " = {}"}) {
-  if (!eventName || !isBrowser()) return;
+  try {
+  if (!eventName || !analyticsEnabled() || privateValue(eventName)) return;
+  properties = safeProperties(properties);
 ${postHogCapture}
   if (WRITE_KEY) {
     send(eventName, properties);
@@ -327,6 +378,7 @@ ${postHogCapture}
       "[aletsch] '" + eventName + "' was not sent: ${envVarName(options.framework, "ALETSCH_WRITE_KEY")} is not set."
     );
   }
+  } catch { /* tracking is isolated from application callbacks */ }
 }
 
 /**
@@ -342,8 +394,16 @@ export function trackEvent(
   properties${ts ? ": TrackProperties = {}" : " = {}"},
   handler${ts ? "?: Handler" : ""}
 )${ts ? ": Handler" : ""} {
-  return function (${ts ? "...args: any[]" : "...args"}) {
-    track(eventName, properties);
+  return function (${ts ? "this: unknown, ...args: any[]" : "...args"}) {
+    try {
+      const event = args[0];
+      const native = event && typeof event.preventDefault === "function" && typeof event.type === "string" ? event.nativeEvent || event : null;
+      if (native && typeof native === "object") {
+        let names = emittedInteractions.get(native);
+        if (!names) { names = new Set(); emittedInteractions.set(native, names); }
+        if (!names.has(eventName)) { names.add(eventName); track(eventName, properties); }
+      } else track(eventName, properties);
+    } catch { /* preserve the original handler even if tracking breaks */ }
     if (typeof handler === "function") {
       ${ts ? "return handler.apply(this as any, args);" : "return handler.apply(this, args);"}
     }
@@ -353,8 +413,13 @@ export function trackEvent(
 
 /** Records a page or screen view. */
 export function trackPageView(path${ts ? "?: string" : ""}, properties${ts ? ": TrackProperties = {}" : " = {}"}) {
-  const resolved = path || (isBrowser() ? window.location.pathname : "");
-  track("page_viewed", Object.assign({ path: resolved }, properties));
+  try {
+    if (!analyticsEnabled()) return;
+    const resolved = pathOnly(path || window.location.pathname);
+    if (resolved === lastPagePath) return;
+    lastPagePath = resolved;
+    track("page_viewed", Object.assign({}, properties, { path: resolved }));
+  } catch { /* pageview tracking must not break routing */ }
 }
 `;
 }
@@ -404,21 +469,40 @@ export function renderProviderComponent(options: TrackerOptions): string {
   const trackerImport = relativeSpecifier(providerComponentPath(framework), stripExtension(trackerModulePath(framework)));
 
   const postHogImport = options.includePostHog ? `import posthog from "posthog-js";\n` : "";
+  const consentEffect = `
+  useEffect(() => {
+    const reportConsent = () => trackPageView(window.location.pathname);
+    window.addEventListener("aletsch:consent", reportConsent);
+    return () => window.removeEventListener("aletsch:consent", reportConsent);
+  }, []);
+`;
   const postHogInit = options.includePostHog
     ? `
+  useEffect(() => {
+    const bootstrap = () => {
+    try {
     const key = ${envExpression(framework, "POSTHOG_KEY", ts)};
-    if (key && !${windowAny}.posthog) {
+    if (key && analyticsEnabled() && !${windowAny}.posthog) {
       posthog.init(key, {
         api_host: ${envExpression(framework, "POSTHOG_HOST", ts)} || "https://us.i.posthog.com",
         // Aletsch emits its own page_viewed event on route change, which
         // client-side routers do not trigger a reload for.
         capture_pageview: false,
+        capture_pageleave: false,
+        autocapture: false,
+        disable_session_recording: true,
         person_profiles: "identified_only",
       });
       ${windowAny}.posthog = posthog;
     }
+    } catch { /* vendor startup must not crash the application */ }
+    };
+    bootstrap();
+    window.addEventListener("aletsch:consent", bootstrap);
+    return () => window.removeEventListener("aletsch:consent", bootstrap);
+  }, []);
 `
-    : "\n    /* PostHog is not enabled for this project. */\n";
+    : "";
 
   if (framework.framework === "nextjs-app-router" || framework.framework === "nextjs-hybrid") {
     return `"use client";
@@ -427,12 +511,13 @@ ${BANNER}
 
 import { useEffect } from "react";
 import { usePathname } from "next/navigation";
-${postHogImport}import { trackPageView } from "${trackerImport}";
+${postHogImport}import { trackPageView${options.includePostHog ? ", analyticsEnabled" : ""} } from "${trackerImport}";
 
 export default function AletschAnalytics() {
   const pathname = usePathname();
 
-  useEffect(() => {${postHogInit}  }, []);
+${postHogInit}
+${consentEffect}
 
   useEffect(() => {
     if (!pathname) return;
@@ -449,12 +534,13 @@ export default function AletschAnalytics() {
 
 import { useEffect } from "react";
 import { useRouter } from "next/router";
-${postHogImport}import { trackPageView } from "${trackerImport}";
+${postHogImport}import { trackPageView${options.includePostHog ? ", analyticsEnabled" : ""} } from "${trackerImport}";
 
 export default function AletschAnalytics() {
   const router = useRouter();
 
-  useEffect(() => {${postHogInit}  }, []);
+${postHogInit}
+${consentEffect}
 
   useEffect(() => {
     const handleRouteChange = (url${ts ? ": string" : ""}) => trackPageView(url.split("?")[0]);
@@ -473,10 +559,12 @@ export default function AletschAnalytics() {
   return `${BANNER}
 
 import { useEffect } from "react";
-${postHogImport}import { trackPageView } from "${trackerImport}";
+${postHogImport}import { trackPageView${options.includePostHog ? ", analyticsEnabled" : ""} } from "${trackerImport}";
 
 export default function AletschAnalytics() {
-  useEffect(() => {${postHogInit}
+${postHogInit}
+${consentEffect}
+  useEffect(() => {
     let lastPath = window.location.pathname;
     const report = () => {
       const path = window.location.pathname;
@@ -550,7 +638,9 @@ export function renderSetupInstructions(options: TrackerOptions, writeKey: strin
   lines.push(
     "Both keys are optional at runtime. Without them the tracker is a no-op and the app behaves exactly as it did before.",
     "",
-    "**No user input is captured.** Aletsch records that an interaction happened, plus the component, route, element and visible label. Field values, form contents and URL query strings are never sent."
+    "**No user input is captured.** Aletsch records that an interaction happened, plus the component, route, element and visible label. Field values, form contents and URL query strings are never sent.",
+    "",
+    `Where opt-in consent is required, set ${envVarName(options.framework, "ALETSCH_REQUIRE_CONSENT")}=true and call setAnalyticsConsent(true) from your consent manager after consent. Call setAnalyticsConsent(false) to opt out. Do Not Track and Global Privacy Control always disable tracking.`
   );
 
   return lines.join("\n");

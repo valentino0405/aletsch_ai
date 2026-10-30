@@ -117,12 +117,15 @@ const SENSITIVE_KEY_PATTERNS = [
 
 /** Values that look like a credential regardless of their key. */
 const SENSITIVE_VALUE_PATTERNS = [
-  /^gh[pousr]_[A-Za-z0-9]{16,}$/, // GitHub tokens
-  /^github_pat_[A-Za-z0-9_]{20,}$/,
-  /^sk-[A-Za-z0-9-_]{16,}$/, // OpenAI-style
-  /^sk_live_[A-Za-z0-9]{16,}$/, // Stripe
-  /^xox[baprs]-[A-Za-z0-9-]{10,}$/, // Slack
-  /^eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\./, // JWT
+  /\bgh[pousr]_[A-Za-z0-9]{16,}/, // GitHub tokens, including prose
+  /\bgithub_pat_[A-Za-z0-9_]{20,}/,
+  /\bsk-[A-Za-z0-9_-]{16,}/, // OpenAI-style
+  /\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}/, // Stripe/Clerk
+  /\bxox[baprs]-[A-Za-z0-9-]{10,}/, // Slack
+  /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\./, // JWT
+  /\b(?:AKIA|ASIA)[0-9A-Z]{16}/,
+  /\bAIza[0-9A-Za-z_-]{35}/,
+  /\b[a-z][a-z0-9+.-]{0,20}:\/\/[^\s/:]+:[^\s@]+@/i,
   /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
 ];
 
@@ -208,7 +211,7 @@ export function sanitizeProperties(raw: unknown): {
     if (kept >= MAX_PROPERTY_COUNT) break;
 
     const safeKey = key.trim().slice(0, 80);
-    if (!safeKey) continue;
+    if (!safeKey || /[.$]/.test(safeKey) || ["__proto__", "constructor", "prototype"].includes(safeKey)) continue;
 
     if (isSensitiveKey(safeKey)) {
       redactedKeys.push(safeKey);
@@ -270,6 +273,7 @@ function inferCategory(eventName: string, explicit: string): string {
  * whether the payload is well-formed and safe to store.
  */
 export function normalizeIngestPayload(raw: RawIngestPayload, now = Date.now()): NormalizeResult {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { ok: false, error: "Body must be a JSON object." };
   const projectId = asString(raw.projectId).trim();
   if (!projectId) return { ok: false, error: "projectId is required." };
   if (projectId.length > 64) return { ok: false, error: "projectId is not a valid identifier." };

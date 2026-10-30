@@ -61,6 +61,24 @@ function keysMatch(provided: string, expected: string): boolean {
   return timingSafeEqual(a, b);
 }
 
+/** Bound actual bytes while streaming, before allocating/parsing the whole body. */
+async function readBoundedBody(req: Request): Promise<string | null> {
+  if (!req.body) return "";
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > MAX_BODY_BYTES) { await reader.cancel(); return null; }
+      chunks.push(value);
+    }
+    return Buffer.concat(chunks).toString("utf8");
+  } finally { reader.releaseLock(); }
+}
+
 export async function POST(req: Request) {
   try {
     // ── 1. Bound the body before parsing it ──────────────────
@@ -69,8 +87,8 @@ export async function POST(req: Request) {
       return cors({ error: "Payload too large." }, { status: 413 });
     }
 
-    const text = await req.text();
-    if (text.length > MAX_BODY_BYTES) {
+    const text = await readBoundedBody(req);
+    if (text === null) {
       return cors({ error: "Payload too large." }, { status: 413 });
     }
 
@@ -122,7 +140,7 @@ export async function POST(req: Request) {
       if (!project) {
         return cors({ error: "Unknown project." }, { status: 404 });
       }
-      if (project.writeKey && !keysMatch(providedKey, project.writeKey)) {
+      if (!project.writeKey || !providedKey || !keysMatch(providedKey, project.writeKey)) {
         return cors({ error: "Invalid write key." }, { status: 401 });
       }
       fallbackStore.addEvent({
@@ -134,6 +152,10 @@ export async function POST(req: Request) {
         userId: event.distinctId,
         sessionId: event.sessionId,
         timestamp: event.timestamp,
+        referrer: event.referrer,
+        properties: event.properties,
+        source: event.source,
+        ...resolveEventContext(contextFromRequest(req.headers), event.declaredContext),
         occurrences: 1,
       });
       return cors({
@@ -236,8 +258,8 @@ export async function POST(req: Request) {
       redactedKeys: event.redactedKeys,
       remaining: limit.remaining,
     });
-  } catch (error: any) {
-    console.error("[Ingest] Failed to record event:", error?.message || error);
+  } catch {
+    console.error("[Ingest] Failed to record event.");
     // Never echo internals to a public endpoint.
     return cors({ error: "Could not record event." }, { status: 500 });
   }
