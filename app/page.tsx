@@ -1,333 +1,121 @@
 import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
-import {
-  ArrowRight,
-  Sparkles,
-  GitBranch,
-  Search,
-  Cpu,
-  Database,
-  Filter,
-  ShieldCheck,
-  Zap,
-  Code2,
-  MousePointerClick,
-  Route,
-  FileCode,
-  BarChart3,
-  Activity,
-  ChevronsRight,
-} from "lucide-react";
+import { ArrowDown, ArrowUpRight, ChartNoAxesCombined, CodeXml, GitBranch, ScanLine, Sparkles, Waypoints } from "lucide-react";
 import LandingNav from "@/components/landing/LandingNav";
-import Reveal from "@/components/landing/Reveal";
+import DataLandscape from "@/components/landing/DataLandscape";
+import LandingMotion from "@/components/landing/LandingMotion";
+import styles from "@/components/landing/landing.module.css";
 
-// Placeholder metrics — content to be swapped later.
-const STATS = [
-  { v: "< 5 min", l: "Setup Time" },
-  { v: "100%", l: "Auto-Instrumented" },
-  { v: "24/7", l: "Monitoring" },
+const FEATURES = [
+  { Icon: CodeXml, title: "Code Intelligence", description: "Your code tells a story. Aletsch maps your routes, components, and interactions to find the moments worth measuring.", number: "01" },
+  { Icon: ScanLine, title: "Automatic Instrumentation", description: "Go from a connected repository to a clear tracking plan. Review generated changes and bring your events to life.", number: "02" },
+  { Icon: ChartNoAxesCombined, title: "A Complete Product View", description: "Follow the entire journey with funnels, retention, and user paths. See where people find value and where they drop off.", number: "03" },
+  { Icon: Sparkles, title: "Insights That Move You Forward", description: "Turn real events into your next decision. Discover what changed, understand why it matters, and know where to look next.", number: "04" },
 ];
 
-const HOW = [
-  { Icon: GitBranch, title: "Connect the Repo", desc: "Link a GitHub repository read-only. Nothing runs inside your own infrastructure." },
-  { Icon: Search, title: "Understand the Code", desc: "Static analysis maps routes, components and interactions, each with a confidence score." },
-  { Icon: Cpu, title: "Auto-Instrument", desc: "Tracking hooks are generated for you automatically — no manual tagging anywhere." },
-  { Icon: Database, title: "Ingest Events", desc: "Events stream in through a secure per-project key and are sanitised at the edge." },
-  { Icon: Filter, title: "Analyze Funnels", desc: "Funnels, retention and paths, all computed from events you can actually trust." },
-  { Icon: Sparkles, title: "Act on Insights", desc: "AI surfaces what changed and where users drop off — always with provenance." },
+const STEPS = [
+  { title: "Connect your repository", text: "Give your analytics the context of your code." },
+  { title: "Review your instrumentation", text: "See exactly what will be tracked before you ship." },
+  { title: "Understand your users", text: "Find the patterns behind every product journey." },
 ];
 
-const POWER = [
-  { Icon: Sparkles, title: "Honest Numbers", desc: "Every metric traces to a counted event, or it says “Insufficient data” — never a guess." },
-  { Icon: ShieldCheck, title: "Secure by Design", desc: "Publishable write keys, constant-time comparison, and PII stripped before storage." },
-  { Icon: Zap, title: "Built for AI-Built Apps", desc: "Instrument code you shipped fast and never hand-tracked — in minutes, not sprints." },
-];
+function OrbitGraphic() {
+  return (
+    <svg className={styles.orbitGraphic} viewBox="0 0 640 480" fill="none" aria-hidden="true">
+      <defs><radialGradient id="orbit-glow"><stop stopColor="#a6b8ad" stopOpacity=".13" /><stop offset="1" stopColor="#a6b8ad" stopOpacity="0" /></radialGradient></defs>
+      <ellipse cx="320" cy="240" rx="305" ry="225" fill="url(#orbit-glow)" />
+      <g stroke="#dcebd9" strokeOpacity=".23" strokeWidth=".7">
+        <circle cx="320" cy="240" r="155" />
+        <ellipse cx="320" cy="240" rx="155" ry="55" /><ellipse cx="320" cy="240" rx="155" ry="110" />
+        <ellipse cx="320" cy="240" rx="55" ry="155" /><ellipse cx="320" cy="240" rx="110" ry="155" />
+        <path d="M165 240h310M320 85v310" />
+        <ellipse cx="320" cy="240" rx="265" ry="92" transform="rotate(-28 320 240)" strokeDasharray="2 7" />
+        <ellipse cx="320" cy="240" rx="242" ry="108" transform="rotate(28 320 240)" />
+      </g>
+      <g fill="#ff6046"><circle cx="112" cy="305" r="5" /><circle cx="481" cy="140" r="5" /><circle cx="407" cy="270" r="4" /></g>
+      <g fill="#e3efdc"><circle cx="215" cy="186" r="3" /><circle cx="320" cy="85" r="3" /><circle cx="320" cy="395" r="3" /></g>
+    </svg>
+  );
+}
 
 export default async function Home() {
   const { userId } = await auth();
   const signedIn = !!userId;
+  const startHref = signedIn ? "/dashboard" : "/sign-up";
+  const startLabel = signedIn ? "Open Dashboard" : "Get Started";
 
   return (
-    <div id="top" className="relative min-h-screen overflow-hidden bg-[#060a14] text-slate-100">
+    <LandingMotion>
+      <Link className={styles.skipLink} href="#main-content">Skip to content</Link>
       <LandingNav signedIn={signedIn} />
-      {/* HERO */}
-      <section className="relative overflow-hidden px-6 pb-20 pt-40 text-center sm:pt-44">
-        {/* aurora backdrop */}
-        <div className="pointer-events-none absolute left-1/2 top-0 h-[600px] w-[1200px] -translate-x-1/2 rounded-[100%] bg-[radial-gradient(ellipse_at_center,rgba(37,99,235,0.14),transparent_60%)]" />
-        <div className="pointer-events-none absolute -left-20 top-24 h-[360px] w-[360px] rotate-12 rounded-full bg-blue-600/10 blur-[120px]" />
-        <div className="pointer-events-none absolute -right-20 top-40 h-[360px] w-[360px] -rotate-12 rounded-full bg-indigo-600/10 blur-[120px]" />
-
-        <div className="relative z-10 mx-auto max-w-3xl">
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3.5 py-1.5 text-xs font-medium text-slate-300">
-            <Sparkles size={12} className="text-blue-400" /> Auto-Instrumented Analytics
-          </span>
-
-          <h1 className="mt-7 text-5xl font-bold leading-[1.05] tracking-tight text-white sm:text-6xl">
-            Spot What Users Do
-            <br />
-            Before{" "}
-            <span className="bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">
-              You Even Ask
-            </span>
-          </h1>
-
-          <p className="mx-auto mt-6 max-w-xl text-base leading-relaxed text-slate-400">
-            Connect your repo and Aletsch reads your code, generates the instrumentation,
-            and turns clicks into funnels — automatically, and with numbers you can trust.
-          </p>
-
-          <div className="mt-9 flex items-center justify-center gap-3">
-            <Link
-              href={signedIn ? "/dashboard" : "/sign-up"}
-              className="inline-flex items-center gap-1.5 rounded-full bg-blue-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-600/25 transition-colors hover:bg-blue-500"
-            >
-              {signedIn ? "Open Dashboard" : "Get Started"}
-              <ArrowRight size={15} />
-            </Link>
-            <a
-              href="#features"
-              className="rounded-full border border-white/10 bg-white/[0.03] px-6 py-3 text-sm font-semibold text-slate-200 transition-colors hover:bg-white/[0.06]"
-            >
-              Learn More
-            </a>
+      <main id="main-content">
+        <section className={styles.hero} aria-labelledby="hero-title">
+          <DataLandscape />
+          <div className={styles.heroShade} aria-hidden="true" />
+          <div className={styles.heroContent}>
+            <h1 id="hero-title"><span className={styles.heroTitleLine} data-hero-line>The new standard</span><span className={styles.heroTitleLine} data-hero-line>in product analytics</span></h1>
+            <p data-hero-copy>Understand your users.<br />Build what comes next.</p>
+            <Link className={styles.primaryButton} data-hero-copy href="#features">Learn More <ArrowUpRight size={17} aria-hidden="true" /></Link>
           </div>
-        </div>
+          <Link className={styles.scrollCue} href="#features" aria-label="Explore Aletsch AI"><ArrowDown size={17} aria-hidden="true" /><span>Discover a clearer picture</span></Link>
+        </section>
 
-        {/* Stats */}
-        <div className="relative z-10 mx-auto mt-20 grid max-w-2xl grid-cols-1 gap-4 sm:grid-cols-3">
-          {STATS.map((s) => (
-            <div
-              key={s.l}
-              className="rounded-2xl border border-white/[0.07] bg-white/[0.02] px-6 py-5 backdrop-blur-sm"
-            >
-              <div className="text-xs font-medium text-slate-500">{s.l}</div>
-              <div className="mt-1.5 bg-gradient-to-r from-white to-slate-300 bg-clip-text text-3xl font-bold text-transparent">
-                {s.v}
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-      {/* FEATURES */}
-      <section id="features" className="scroll-mt-24 px-6 py-24">
-        <div className="mx-auto max-w-6xl">
-          <Reveal className="text-center">
-            <h2 className="text-4xl font-bold tracking-tight text-white sm:text-5xl">
-              What Is Aletsch AI?
-            </h2>
-            <p className="mx-auto mt-4 max-w-xl text-sm leading-relaxed text-slate-400">
-              A suite that reads your product&apos;s code and detects the signals and
-              behavioural patterns worth measuring — before you write a line of tracking.
-            </p>
-          </Reveal>
-
-          <div className="mt-14 grid gap-5 lg:grid-cols-2">
-            <Reveal className="h-full">
-              <div className="group h-full rounded-2xl border border-white/[0.07] bg-white/[0.02] p-7 transition-colors hover:border-blue-500/30">
-                <div className="relative mb-6 h-40">
-                  <div className="absolute left-1/2 top-1/2 h-px w-56 max-w-full -translate-x-1/2 -translate-y-1/2 bg-gradient-to-r from-transparent via-blue-500/25 to-transparent" />
-                  <div className="absolute left-6 top-5 flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/[0.03] text-slate-400"><FileCode size={16} /></div>
-                  <div className="absolute right-6 top-5 flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/[0.03] text-slate-400"><Route size={16} /></div>
-                  <div className="absolute bottom-5 left-10 flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/[0.03] text-slate-400"><MousePointerClick size={16} /></div>
-                  <div className="absolute bottom-5 right-10 flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/[0.03] text-slate-400"><Code2 size={16} /></div>
-                  <div className="absolute left-1/2 top-1/2 flex h-16 w-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-blue-500/40 bg-blue-500/10 text-blue-300 shadow-[0_0_40px_rgba(37,99,235,0.3)]"><Cpu size={24} /></div>
-                </div>
-                <h3 className="text-xl font-semibold text-white">Code Understanding</h3>
-                <p className="mt-2 text-sm leading-relaxed text-slate-400">
-                  Aletsch parses your component tree to map pages, forms and click targets —
-                  the exact moments worth measuring, found automatically.
-                </p>
-              </div>
-            </Reveal>
-
-            <Reveal delay={100} className="h-full">
-              <div className="group h-full rounded-2xl border border-white/[0.07] bg-white/[0.02] p-7 transition-colors hover:border-blue-500/30">
-                <div className="relative mb-6 flex h-40 items-center justify-center gap-2.5">
-                  <div className="absolute left-1/2 top-1/2 h-px w-72 max-w-full -translate-x-1/2 -translate-y-1/2 bg-gradient-to-r from-transparent via-blue-500/25 to-transparent" />
-                  <div className="relative z-10 flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 bg-[#0b1120] text-slate-400"><Code2 size={18} /></div>
-                  <div className="relative z-10 flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 bg-[#0b1120] text-slate-400"><MousePointerClick size={18} /></div>
-                  <div className="relative z-10 flex h-14 w-14 items-center justify-center rounded-xl border border-blue-500/40 bg-blue-500/10 text-blue-300 shadow-[0_0_40px_rgba(37,99,235,0.3)]"><Cpu size={22} /></div>
-                  <div className="relative z-10 flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 bg-[#0b1120] text-slate-400"><Database size={18} /></div>
-                  <div className="relative z-10 flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 bg-[#0b1120] text-slate-400"><Activity size={18} /></div>
-                </div>
-                <h3 className="text-xl font-semibold text-white">Auto Instrumentation</h3>
-                <p className="mt-2 text-sm leading-relaxed text-slate-400">
-                  Event tracking is generated for you and streamed through a per-project key.
-                  No SDK boilerplate, no tagging plan to maintain.
-                </p>
-              </div>
-            </Reveal>
+        <section id="features" className={styles.features} aria-labelledby="features-title">
+          <div className={styles.featureIntro}>
+            <span className={styles.sectionLabel}>Built for what&apos;s next</span>
+            <h2 id="features-title" data-reveal="heading">Let your code take your product to higher ground.</h2>
+            <p data-reveal="copy">You&apos;ve built something great. Now understand how people use it. Aletsch connects your code to your analytics, turning everyday interactions into a clearer picture of your product.</p>
+            <Link className={styles.textLink} data-reveal="copy" href="#how">Meet your new workflow <ArrowUpRight size={18} aria-hidden="true" /></Link>
           </div>
-          <div className="mt-5 grid gap-5 md:grid-cols-3">
-            <Reveal className="h-full">
-              <div className="group h-full rounded-2xl border border-white/[0.07] bg-white/[0.02] p-6 transition-colors hover:border-blue-500/30">
-                <div className="mb-5 flex h-24 items-center justify-center">
-                  <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] text-blue-300 shadow-[0_0_30px_rgba(37,99,235,0.15)]"><BarChart3 size={24} /></div>
-                </div>
-                <h3 className="text-lg font-semibold text-white">Funnel Analysis</h3>
-                <p className="mt-2 text-sm leading-relaxed text-slate-400">
-                  Model conversion pipelines and surface drop-off — all from real counted events.
-                </p>
+          <div className={styles.featureCards}>
+            {FEATURES.map(({ Icon, title, description, number }) => (
+              <div key={title} className={styles.featureCardSlot} data-card-slot>
+                <article className={styles.featureCard}>
+                  <div className={styles.cardTop}><span className={styles.featureIcon}><Icon size={29} strokeWidth={1.2} aria-hidden="true" /></span><span className={styles.cardNumber}>{number}</span></div>
+                  <h3>{title}</h3><p>{description}</p>
+                  <div className={styles.cardRule} aria-hidden="true"><span /></div>
+                </article>
               </div>
-            </Reveal>
-
-            <Reveal delay={100} className="h-full">
-              <div className="group h-full rounded-2xl border border-white/[0.07] bg-white/[0.02] p-6 transition-colors hover:border-blue-500/30">
-                <div className="mb-5 flex h-24 items-center justify-center">
-                  <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] text-blue-300 shadow-[0_0_30px_rgba(37,99,235,0.15)]"><ShieldCheck size={24} /></div>
-                </div>
-                <h3 className="text-lg font-semibold text-white">Secure Ingest</h3>
-                <p className="mt-2 text-sm leading-relaxed text-slate-400">
-                  Per-project write key, constant-time checks, and PII stripped before storage.
-                </p>
-              </div>
-            </Reveal>
-
-            <Reveal delay={200} className="h-full">
-              <div className="h-full rounded-2xl border border-white/[0.07] bg-white/[0.02] p-6">
-                <div className="mb-5 space-y-2">
-                  {[
-                    { t: "Route mapped", s: "/checkout", a: "2m ago" },
-                    { t: "CTA detected", s: "“Start Free” button", a: "5m ago" },
-                    { t: "Funnel step", s: "Sign-up → Activate", a: "8m ago" },
-                  ].map((r) => (
-                    <div key={r.s} className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2">
-                      <div>
-                        <div className="text-xs font-medium text-slate-200">{r.t}</div>
-                        <div className="text-[10px] text-slate-500">{r.s}</div>
-                      </div>
-                      <div className="font-mono text-[10px] text-slate-500">{r.a}</div>
-                    </div>
-                  ))}
-                </div>
-                <h3 className="text-lg font-semibold text-white">Live Event Feed</h3>
-                <p className="mt-2 flex items-center gap-2 text-xs text-slate-500">
-                  <span className="h-1.5 w-1.5 animate-pulse-glow rounded-full bg-emerald-400 text-emerald-400" />
-                  Live monitoring active
-                </p>
-              </div>
-            </Reveal>
-          </div>
-        </div>
-      </section>
-      {/* HOW IT WORKS */}
-      <section id="how" className="scroll-mt-24 px-6 py-24">
-        <div className="mx-auto max-w-6xl">
-          <Reveal className="text-center">
-            <h2 className="text-4xl font-bold tracking-tight text-white sm:text-5xl">
-              How It Works
-            </h2>
-            <p className="mx-auto mt-4 max-w-2xl text-sm leading-relaxed text-slate-400">
-              From a connected repository to answers you can act on — five analysis stages
-              and one AI layer, running on events you can trust.
-            </p>
-          </Reveal>
-
-          <div className="mt-14 grid gap-4 md:grid-cols-3">
-            {HOW.map((h, i) => (
-              <Reveal key={h.title} delay={(i % 3) * 80} className="h-full">
-                <div className="group h-full rounded-2xl border border-white/[0.07] bg-white/[0.02] p-6 transition-colors hover:border-blue-500/30">
-                  <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] text-blue-300">
-                    <h.Icon size={18} />
-                  </div>
-                  <h3 className="text-base font-semibold text-white">{h.title}</h3>
-                  <p className="mt-2 text-sm leading-relaxed text-slate-400">{h.desc}</p>
-                </div>
-              </Reveal>
             ))}
           </div>
-        </div>
-      </section>
-      {/* POWER */}
-      <section id="power" className="scroll-mt-24 border-t border-white/[0.06] px-6 py-24">
-        <div className="mx-auto grid max-w-6xl gap-12 lg:grid-cols-2 lg:items-center">
-          <Reveal>
-            <h2 className="text-4xl font-bold tracking-tight text-white sm:text-5xl">
-              The Power Of{" "}
-              <span className="bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">
-                Aletsch
-              </span>
-            </h2>
-            <p className="mt-5 max-w-md text-sm leading-relaxed text-slate-400">
-              Analytics you can defend in a review: generated from your own code, measured
-              from real events, and honest when the data isn&apos;t there.
-            </p>
-            <div className="mt-8 flex gap-12">
-              <div>
-                <div className="text-3xl font-bold text-white">0</div>
-                <div className="mt-1 text-xs text-slate-500">Lines of tracking code</div>
-              </div>
-              <div>
-                <div className="text-3xl font-bold text-white">100%</div>
-                <div className="mt-1 text-xs text-slate-500">Traceable numbers</div>
-              </div>
-            </div>
-            <Link
-              href={signedIn ? "/dashboard" : "/sign-up"}
-              className="mt-8 inline-block rounded-full border border-white/10 bg-white/[0.03] px-6 py-3 text-sm font-semibold text-slate-200 transition-colors hover:bg-white/[0.06]"
-            >
-              Learn More
-            </Link>
-          </Reveal>
+        </section>
 
-          <div className="space-y-3">
-            {POWER.map((p, i) => (
-              <Reveal key={p.title} delay={i * 80}>
-                <div
-                  className={`flex items-start gap-4 rounded-2xl border p-5 transition-colors ${
-                    i === 0
-                      ? "border-blue-500/30 bg-blue-500/[0.04]"
-                      : "border-white/[0.07] bg-white/[0.02] hover:border-blue-500/20"
-                  }`}
-                >
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] text-blue-300">
-                    <p.Icon size={18} />
-                  </div>
-                  <div>
-                    <h3 className="text-base font-semibold text-white">{p.title}</h3>
-                    <p className="mt-1 text-sm leading-relaxed text-slate-400">{p.desc}</p>
-                  </div>
-                </div>
-              </Reveal>
-            ))}
+        <section id="how" className={styles.workflow} aria-labelledby="workflow-title">
+          <div className={styles.workflowVisual}>
+            <span className={styles.sectionLabel}>From code to clarity</span>
+            <h2 id="workflow-title" data-reveal="heading">Unprecedented clarity.<br />Effortless analytics.</h2>
+            <OrbitGraphic />
+            <span className={styles.visualCaption}><GitBranch size={15} aria-hidden="true" />Every insight starts with your code.</span>
           </div>
-        </div>
-      </section>
-      {/* CTA */}
-      <section className="relative overflow-hidden border-t border-white/[0.06] px-6 py-28 text-center">
-        <div className="pointer-events-none absolute left-1/2 top-1/2 h-[360px] w-[640px] -translate-x-1/2 -translate-y-1/2 rounded-[100%] bg-[radial-gradient(ellipse_at_center,rgba(37,99,235,0.16),transparent_60%)]" />
-        <div className="relative mx-auto max-w-2xl">
-          <Reveal>
-            <h2 className="text-4xl font-bold tracking-tight text-white sm:text-5xl">
-              Point it at your repo.
-            </h2>
-            <p className="mx-auto mt-5 max-w-lg text-sm leading-relaxed text-slate-400">
-              Connect a repository and watch Aletsch map, instrument and analyze it — in
-              minutes, with numbers you can trust.
-            </p>
-            <Link
-              href={signedIn ? "/dashboard" : "/sign-up"}
-              className="mt-8 inline-flex items-center gap-1.5 rounded-full bg-blue-600 px-7 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-600/25 transition-colors hover:bg-blue-500"
-            >
-              {signedIn ? "Open Dashboard" : "Get Started"}
-              <ArrowRight size={15} />
-            </Link>
-          </Reveal>
-        </div>
-      </section>
+          <div className={styles.workflowContent}>
+            <p className={styles.workflowLead} data-reveal="heading">Less time connecting the dots.<br />More time moving forward.</p>
+            <p className={styles.bodyCopy} data-reveal="copy">From the first connection to your next product decision, Aletsch brings your workflow together. Analytics grounded in real events, with a clear path back to the source.</p>
+            <ol className={styles.steps}>{STEPS.map((step, index) => <li key={step.title} data-reveal="copy"><span className={styles.stepNumber}>0{index + 1}</span><div><h3>{step.title}</h3><p>{step.text}</p></div></li>)}</ol>
+            <Link href={startHref} className={styles.primaryButton}>{startLabel}<ArrowUpRight size={17} aria-hidden="true" /></Link>
+          </div>
+        </section>
 
-      {/* FOOTER */}
-      <footer className="border-t border-white/[0.06] px-6 py-10">
-        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 sm:flex-row">
-          <div className="flex items-center gap-2">
-            <ChevronsRight size={16} className="text-blue-500" />
-            <span className="text-sm font-semibold text-white">Aletsch AI</span>
-          </div>
-          <p className="text-xs text-slate-500">
-            © {new Date().getFullYear()} Aletsch AI · Analytics for AI-built apps
-          </p>
+        <section id="vision" className={styles.vision} aria-labelledby="vision-title">
+          <span className={styles.sectionLabel}>A clearer view. A better product.</span>
+          <h2 id="vision-title" data-reveal="heading">Built on your code.<br />Grounded in real behavior.</h2>
+          <p data-reveal="copy">Good decisions start with data you can trust. Every metric in Aletsch traces back to counted events. When there isn&apos;t enough data, we say so. You get the context to move forward with confidence.</p>
+          <div className={styles.visionTags}><span><i aria-hidden="true" />Traceable insights</span><span><i aria-hidden="true" />Privacy-conscious collection</span><span><i aria-hidden="true" />Your code, your context</span></div>
+        </section>
+
+        <section className={styles.cta} aria-labelledby="cta-title">
+          <div className={styles.ctaHeading}><span className={styles.sectionLabel}>Your next chapter starts here</span><h2 id="cta-title" data-reveal="heading">Ready to see<br />the full picture?</h2></div>
+          <div className={styles.ctaContent}><p data-reveal="copy">Bring your code, your users, and your next big idea together. Let&apos;s turn what&apos;s happening into what happens next.</p><Link href={startHref} className={styles.primaryButton}>{startLabel}<ArrowUpRight size={17} aria-hidden="true" /></Link></div>
+        </section>
+      </main>
+
+      <footer className={styles.footer}>
+        <div className={styles.footerTop}>
+          <div><Link href="#top" className={styles.brand} aria-label="Aletsch AI home"><Waypoints size={25} strokeWidth={1.6} aria-hidden="true" />ALETSCH.AI</Link><p className={styles.footerTagline}>Your code. Your users.<br />A whole new perspective.</p></div>
+          <nav aria-label="Footer navigation" className={styles.footerNav}><Link href="#features">Solutions</Link><Link href="#how">How It Works</Link><Link href="#vision">Our Vision</Link></nav>
+          <div className={styles.footerAction}><span>Make your next move a smarter one.</span><Link className={styles.outlineButton} href={startHref}>{startLabel}<ArrowUpRight size={17} aria-hidden="true" /></Link></div>
         </div>
+        <div className={styles.footerBottom}><p>© {new Date().getFullYear()} Aletsch AI. All rights reserved.</p><Link href="#top">Back to top <ArrowUpRight size={14} aria-hidden="true" /></Link></div>
       </footer>
-    </div>
+    </LandingMotion>
   );
 }
