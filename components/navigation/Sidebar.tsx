@@ -36,6 +36,7 @@ import {
 interface SidebarProps {
   isOpen: boolean;
   setIsOpen: (open: boolean) => void;
+  preview?: boolean;
 }
 
 const navCategories = [
@@ -93,17 +94,21 @@ const navCategories = [
   },
 ];
 
-export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
+export default function Sidebar({ isOpen, setIsOpen, preview = false }: SidebarProps) {
   const pathname = usePathname();
   const { user } = useUser();
   const [activeProject, setActiveProject] = useState<any>(null);
 
   useEffect(() => {
+    if (preview) {
+      setActiveProject({ name: "Sample Storefront", status: "Ready", repositoryUrl: "github.com/aletsch-ai/sample-storefront", branch: "main" });
+      return;
+    }
     fetch("/api/projects")
       .then((response) => (response.ok ? response.json() : []))
       .then((projects) => setActiveProject(Array.isArray(projects) ? projects[0] || null : null))
       .catch(() => setActiveProject(null));
-  }, [pathname]);
+  }, [pathname, preview]);
 
   // The badge reflects the project's real status. A fixed green "Live"
   // would claim a repository is being tracked when it may have failed
@@ -120,13 +125,13 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
 
   return (
     <aside
-      className={`fixed top-0 left-0 z-40 h-screen transition-all duration-300 border-r border-zinc-800/60 bg-[#06060c] flex flex-col ${
+      className={`sidebar-glass fixed top-0 left-0 z-40 h-screen transition-all duration-300 border-r border-white/[0.08] flex flex-col shadow-[12px_0_50px_rgba(0,0,0,0.18)] ${
         isOpen ? "w-64" : "w-20"
       }`}
     >
       {/* Top Header */}
       <div className="flex-1 min-h-0 flex flex-col">
-        <div className="h-16 flex items-center justify-between px-4 border-b border-zinc-800/60">
+        <div className="h-16 flex items-center justify-between px-4 border-b border-white/[0.06]">
           <div className="flex items-center gap-3 overflow-hidden">
             <div className="h-8 w-8 min-w-[32px] rounded-lg bg-gradient-to-tr from-indigo-500 via-purple-500 to-cyan-500 flex items-center justify-center font-bold text-white shadow-md shadow-indigo-500/20">
               A
@@ -143,6 +148,7 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
             )}
           </div>
           <button
+            aria-label={isOpen ? "Collapse navigation" : "Expand navigation"}
             onClick={() => setIsOpen(!isOpen)}
             className="p-1 rounded-md hover:bg-zinc-800/50 text-zinc-400 hover:text-white transition"
           >
@@ -174,8 +180,8 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                       isOpen ? "px-3" : "px-0 justify-center"
                     } ${
                       isActive
-                        ? "bg-indigo-600/15 text-white shadow-[0_0_10px_rgba(99,102,241,0.1)]"
-                        : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/50"
+                        ? "bg-indigo-500/[0.13] text-white shadow-[inset_0_0_0_1px_rgba(129,140,248,0.12),0_4px_18px_rgba(79,70,229,0.09)]"
+                        : "text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.045]"
                     }`}
                   >
                     {isActive && (
@@ -202,7 +208,7 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
       </div>
 
       {/* Bottom Info & User Profile */}
-      <div className="shrink-0 p-2 border-t border-zinc-800/60 bg-[#040409]">
+      <div className="shrink-0 p-2 border-t border-white/[0.06] bg-black/10">
         {/* Project Card */}
         {isOpen && (
           <div className="mb-2 p-2.5 rounded-lg border border-zinc-800/80 bg-zinc-950/40 relative overflow-hidden">
@@ -247,22 +253,22 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
         )}
 
         {/* User profile section */}
-        <div className="flex items-center justify-between gap-3 px-1.5 py-1 rounded-lg">
+          <div className="flex items-center justify-between gap-3 px-1.5 py-1 rounded-lg">
           <div className="flex items-center gap-3 overflow-hidden">
-            <UserButton
+            {preview ? <div className="h-8 w-8 rounded-full border border-indigo-300/30 bg-gradient-to-br from-indigo-400 to-violet-600 flex items-center justify-center text-xs font-bold text-white">S</div> : <UserButton
               appearance={{
                 elements: {
                   avatarBox: "h-8 w-8 rounded-full border border-zinc-700",
                 },
               }}
-            />
+            />}
             {isOpen && (
               <div className="flex flex-col text-left overflow-hidden">
                 <span className="text-xs font-semibold text-white truncate">
-                  {user?.fullName || user?.firstName || "Project Owner"}
+                  {preview ? "Sample Workspace" : user?.fullName || user?.firstName || "Project Owner"}
                 </span>
                 <span className="text-[10px] text-zinc-500 truncate">
-                  Project Owner
+                  {preview ? "Preview data" : "Project Owner"}
                 </span>
               </div>
             )}

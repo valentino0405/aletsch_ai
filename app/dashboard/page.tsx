@@ -147,6 +147,71 @@ const HEALTH_TONE: Record<string, { dot: string; text: string }> = {
   off: { dot: "bg-zinc-700", text: "text-zinc-600" },
 };
 
+// A deliberately fictional workspace used by the public landing-page preview.
+// Keep this fixture local: the preview must never request signed-in dashboard data.
+const PREVIEW_PROJECT: ProjectMeta = {
+  id: "sample-storefront",
+  name: "Sample Storefront",
+  status: "Ready",
+  repositoryUrl: "github.com/aletsch-ai/sample-storefront",
+};
+
+const PREVIEW_DATA: DashboardData = {
+  totalUsers: 1248,
+  eventsTracked: 8924,
+  componentsDetected: 34,
+  reposConnected: 1,
+  conversionRate: "8.4%",
+  averageSessionTime: "3m 42s",
+  atRiskDropoffs: 3,
+  funnel: [
+    { name: "Product viewed", event: "product_viewed", users: 1248, percent: 100, drop: 0, dropFromPrevious: 0 },
+    { name: "Added to cart", event: "add_to_cart", users: 724, percent: 58, drop: 42, dropFromPrevious: 42 },
+    { name: "Checkout started", event: "checkout_started", users: 412, percent: 33, drop: 43, dropFromPrevious: 43 },
+    { name: "Order completed", event: "order_completed", users: 105, percent: 8, drop: 75, dropFromPrevious: 75 },
+  ],
+  funnelMeta: { name: "Storefront conversion", source: "derived-from-catalog", largestDropoff: { from: "Checkout started", to: "Order completed", rate: 74.5 }, insufficientData: false },
+  trends: {
+    window: "7d", hasData: true,
+    series: [],
+    eventSparkline: [24, 31, 28, 42, 37, 53, 61],
+    userSparkline: [18, 24, 22, 29, 33, 37, 45],
+    users: { percent: 12.6, direction: "up", label: "+12.6% vs prior period" },
+    events: { percent: 8.2, direction: "up", label: "+8.2% vs prior period" },
+  },
+  topEvents: [
+    { name: "product_viewed", count: "2,481", cat: "Pageview" },
+    { name: "add_to_cart", count: "1,034", cat: "Interaction" },
+    { name: "checkout_started", count: "412", cat: "Form" },
+  ],
+  recentActivity: [
+    { desc: "Analysis complete · 34 components and 15 routes mapped", time: "2 minutes ago", type: "code" },
+    { desc: "Conversion funnel refreshed with recent activity", time: "18 minutes ago", type: "sync" },
+    { desc: "Checkout drop-off opportunity identified", time: "1 hour ago", type: "alert" },
+  ],
+  projects: [PREVIEW_PROJECT],
+  selectedProject: PREVIEW_PROJECT,
+  analysis: { filesScanned: 42, filesParsed: 39, componentsDetected: 34, routesDetected: 15, interactionsDetected: 186, status: "Complete", completedAt: "Today, 9:41 AM" },
+  systemHealth: {
+    repoConnection: { state: "ok", detail: "Sample repository connected" },
+    eventProcessing: { state: "ok", detail: "Events flowing normally" },
+    aiAnalysis: { state: "ok", detail: "Analysis ready" },
+    codeAnalysis: { state: "ok", detail: "39 files parsed successfully" },
+    dashboardService: { state: "ok", detail: "All preview services operational" },
+  },
+};
+
+const PREVIEW_INSIGHTS = [
+  { type: "opportunity", title: "Checkout improvement", description: "Most visitors leave between checkout and order confirmation.", recommendation: "Review friction in the payment step." },
+  { type: "positive", title: "Product discovery is healthy", description: "Product views are up 12.6% over the previous period." },
+];
+
+const PREVIEW_COMPONENTS = [
+  { instrumented: true, status: "Instrumented", events: [{ name: "product_viewed" }, { name: "add_to_cart" }], eventsAreLive: true },
+  { instrumented: true, status: "Instrumented", events: [{ name: "checkout_started" }], eventsAreLive: true },
+  { instrumented: false, status: "Pending review", events: [{ name: "payment_submitted" }], eventsAreLive: false },
+];
+
 // ── Animated number counter ──────────────────────────────────────
 function AnimatedNumber({ value }: { value: string }) {
   const ref = useRef<HTMLSpanElement>(null);
@@ -186,32 +251,11 @@ function SpotlightCard({
   className?: string;
   glowColor?: string;
 }) {
-  const divRef = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState({ x: 0, y: 0 });
-  const [hovered, setHovered] = useState(false);
-
-  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    const rect = divRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    setPos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
-  };
-
   return (
     <div
-      ref={divRef}
       className={`glow-card rounded-xl relative overflow-hidden ${className}`}
-      onMouseMove={handleMouseMove}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      style={{ "--spotlight-color": glowColor } as React.CSSProperties}
     >
-      {hovered && (
-        <div
-          className="pointer-events-none absolute inset-0 rounded-xl transition-opacity duration-300"
-          style={{
-            background: `radial-gradient(350px circle at ${pos.x}px ${pos.y}px, ${glowColor}, transparent 70%)`,
-          }}
-        />
-      )}
       {children}
     </div>
   );
@@ -239,22 +283,23 @@ const itemVariants = {
 };
 
 // ── Dashboard Component ──────────────────────────────────────────
-export default function Dashboard() {
+export default function Dashboard({ preview = false }: { preview?: boolean }) {
   const { user, isLoaded } = useUser();
   const [rangeKey, setRangeKey] = useState("7d");
   const [showRangeDropdown, setShowRangeDropdown] = useState(false);
-  const [data, setData] = useState<DashboardData | null>(null);
-  const [insights, setInsights] = useState<any[]>([]);
-  const [components, setComponents] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<DashboardData | null>(preview ? PREVIEW_DATA : null);
+  const [insights, setInsights] = useState<any[]>(preview ? PREVIEW_INSIGHTS : []);
+  const [components, setComponents] = useState<any[]>(preview ? PREVIEW_COMPONENTS : []);
+  const [loading, setLoading] = useState(!preview);
   const [loadError, setLoadError] = useState("");
-  const [selectedProjectId, setSelectedProjectId] = useState<string>("");
-  const [projects, setProjects] = useState<ProjectMeta[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState<string>(preview ? PREVIEW_PROJECT.id : "");
+  const [projects, setProjects] = useState<ProjectMeta[]>(preview ? [PREVIEW_PROJECT] : []);
   const [showProjectDropdown, setShowProjectDropdown] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
   const fetchAll = useCallback(
     async (projectId?: string, range?: string) => {
+      if (preview) return;
       setLoading(true);
       setLoadError("");
       try {
@@ -295,13 +340,14 @@ export default function Dashboard() {
         setLoading(false);
       }
     },
-    [selectedProjectId, rangeKey]
+    [preview, selectedProjectId, rangeKey]
   );
 
   useEffect(() => {
+    if (preview) return;
     fetchAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refreshKey]);
+  }, [refreshKey, preview]);
 
   const handleProjectSelect = (proj: ProjectMeta) => {
     setSelectedProjectId(proj.id);
@@ -453,7 +499,7 @@ export default function Dashboard() {
   const greeting = greetingHour < 12 ? "Good morning" : greetingHour < 18 ? "Good afternoon" : "Good evening";
 
   return (
-    <DashboardLayout>
+    <DashboardLayout preview={preview}>
       {/* ── Ambient background mesh ── */}
       <div className="ambient-bg" />
 
@@ -470,7 +516,7 @@ export default function Dashboard() {
             <h1 className="text-3xl font-bold tracking-tight flex items-center gap-3">
               <span className="gradient-text">
                 {greeting},{" "}
-                {isLoaded && user ? user.firstName : "Developer"}
+                {preview ? "Sample Workspace" : isLoaded && user ? user.firstName : "Developer"}
               </span>
               <motion.span
                 animate={{ rotate: [0, 14, -8, 14, 0] }}
@@ -529,7 +575,7 @@ export default function Dashboard() {
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, y: -8, scale: 0.95 }}
                     transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
-                    className="absolute right-0 mt-2 w-56 rounded-xl border border-zinc-800 bg-zinc-950/95 backdrop-blur-xl shadow-2xl p-1 z-50"
+                    className="glass-popover absolute right-0 mt-2 w-56 rounded-2xl shadow-2xl p-1 z-50"
                   >
                     {projects.length === 0 ? (
                       <div className="px-3 py-4 text-center text-xs text-zinc-500">
@@ -605,7 +651,7 @@ export default function Dashboard() {
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, y: -8, scale: 0.95 }}
                     transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
-                    className="absolute right-0 mt-2 w-48 rounded-xl border border-zinc-800 bg-zinc-950/95 backdrop-blur-xl shadow-2xl p-1 z-50"
+                    className="glass-popover absolute right-0 mt-2 w-48 rounded-2xl shadow-2xl p-1 z-50"
                   >
                     {DATE_RANGES.map((range, i) => (
                       <motion.button

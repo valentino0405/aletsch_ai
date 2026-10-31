@@ -1,7 +1,7 @@
 // ============================================================
 // Aletsch AI — Edge Proxy (Next.js 16 replaces middleware.ts)
-// Enforces Clerk authentication on every non-public route so
-// that no dashboard page or data API is reachable anonymously.
+// Enforces Clerk authentication on every private route; the public
+// dashboard preview uses only fictional, local sample data.
 // ============================================================
 
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
@@ -17,6 +17,7 @@ import { NextResponse } from "next/server";
  */
 const isPublicRoute = createRouteMatcher([
   "/",
+  "/dashboard-preview(.*)",
   "/sign-in(.*)",
   "/sign-up(.*)",
   "/api/ingest",

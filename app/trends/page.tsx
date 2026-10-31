@@ -1,123 +1,106 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import DashboardLayout from "@/components/navigation/DashboardLayout";
-import { LineChart, BarChart3, PieChart, Info, Filter, Plus, Download } from "lucide-react";
-import { mockTrendsData } from "@/lib/mock-analytics-data";
+import { Activity, ArrowUpRight, CalendarRange, Radio, Users } from "lucide-react";
+
+type EventRow = { eventName: string; label?: string; count: number; users: number; lastSeen?: string | null };
+type Catalog = { events?: EventRow[]; error?: string; unavailable?: { reason?: string } };
+
+const ranges = [
+  { value: "24h", label: "24 hours" },
+  { value: "7d", label: "7 days" },
+  { value: "30d", label: "30 days" },
+  { value: "90d", label: "90 days" },
+];
 
 export default function TrendsPage() {
+  const [range, setRange] = useState("30d");
+  const [catalog, setCatalog] = useState<Catalog | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    fetch(`/api/analytics/events?dateRange=${range}`)
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Could not load event activity.");
+        return data as Catalog;
+      })
+      .then((data) => { if (!cancelled) setCatalog(data); })
+      .catch((error) => { if (!cancelled) setCatalog({ error: error.message }); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [range]);
+
+  const events = catalog?.events ?? [];
+  const occurrences = events.reduce((sum, event) => sum + event.count, 0);
+  const activeTypes = events.filter((event) => event.count > 0).length;
+  const peak = Math.max(...events.map((event) => event.count), 1);
+
   return (
     <DashboardLayout>
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
+      <div className="space-y-7">
+        <header className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-white">Trends</h1>
-            <p className="text-sm text-zinc-400">Analyze how your events and metrics are performing over time.</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-indigo-300/80">Product analytics</p>
+            <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white">Event trends</h1>
+            <p className="mt-2 text-sm text-zinc-400">See which events are actually being emitted by your product.</p>
           </div>
-          <div className="flex items-center gap-2">
-            <button className="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-lg text-xs font-semibold transition">
-              Save Report
-            </button>
-          </div>
-        </div>
-
-        {/* Controls */}
-        <div className="flex items-center gap-3 p-4 bg-zinc-900/50 rounded-xl border border-zinc-800">
-          <div className="flex-1 flex gap-2">
-            <select className="bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-1.5 text-xs text-zinc-300 font-medium">
-              <option>Line chart</option>
-              <option>Bar chart</option>
+          <label className="glass-toolbar flex items-center gap-2 rounded-xl px-3 py-2 text-sm text-zinc-300">
+            <CalendarRange size={15} className="text-zinc-400" />
+            <span className="sr-only">Time range</span>
+            <select value={range} onChange={(event) => setRange(event.target.value)} className="bg-transparent outline-none">
+              {ranges.map((item) => <option className="bg-zinc-950" key={item.value} value={item.value}>{item.label}</option>)}
             </select>
-            <select className="bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-1.5 text-xs text-zinc-300 font-medium">
-              <option>Last 30 days</option>
-              <option>Last 7 days</option>
-              <option>Today</option>
-            </select>
-            <button className="flex items-center gap-1.5 bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-1.5 text-xs text-zinc-300 font-medium hover:text-white transition">
-              <Filter size={14} /> Add filter
-            </button>
-          </div>
-          <div className="flex gap-2">
-            <select className="bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-1.5 text-xs text-zinc-300 font-medium">
-              <option>Daily</option>
-              <option>Weekly</option>
-              <option>Monthly</option>
-            </select>
-          </div>
-        </div>
+          </label>
+        </header>
 
-        {/* KPIs */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="glow-card rounded-xl p-4 border border-zinc-800 bg-zinc-950/50">
-            <h3 className="text-xs text-zinc-500 font-medium">Total Events</h3>
-            <div className="text-2xl font-bold text-white mt-1">1,245,600</div>
-            <div className="text-xs text-emerald-500 font-medium mt-1">+12.5% from last period</div>
-          </div>
-          <div className="glow-card rounded-xl p-4 border border-zinc-800 bg-zinc-950/50">
-            <h3 className="text-xs text-zinc-500 font-medium">Unique Users</h3>
-            <div className="text-2xl font-bold text-white mt-1">45,210</div>
-            <div className="text-xs text-emerald-500 font-medium mt-1">+8.2% from last period</div>
-          </div>
-          <div className="glow-card rounded-xl p-4 border border-zinc-800 bg-zinc-950/50">
-            <h3 className="text-xs text-zinc-500 font-medium">Avg per User</h3>
-            <div className="text-2xl font-bold text-white mt-1">27.5</div>
-            <div className="text-xs text-rose-500 font-medium mt-1">-2.1% from last period</div>
-          </div>
-          <div className="glow-card rounded-xl p-4 border border-zinc-800 bg-zinc-950/50">
-            <h3 className="text-xs text-zinc-500 font-medium">Active Events</h3>
-            <div className="text-2xl font-bold text-white mt-1">12</div>
-            <div className="text-xs text-zinc-500 font-medium mt-1">No change</div>
-          </div>
-        </div>
+        {catalog?.error && <div className="glass-surface rounded-2xl p-4 text-sm text-rose-300">{catalog.error}</div>}
 
-        {/* Chart Area */}
-        <div className="glow-card rounded-xl p-6 border border-zinc-800 bg-zinc-950/50 h-80 flex items-center justify-center relative overflow-hidden">
-          <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:24px_24px]"></div>
-          <div className="relative z-10 flex flex-col items-center gap-2">
-            <LineChart size={48} className="text-zinc-700" />
-            <p className="text-sm font-semibold text-zinc-400">Mock Data Visualization</p>
-            <p className="text-xs text-zinc-500">Real-time charts will be implemented in the next phase.</p>
-          </div>
-        </div>
+        <section className="grid gap-4 sm:grid-cols-3">
+          {[
+            { label: "Active event types", value: loading ? "—" : activeTypes.toLocaleString(), icon: Radio, hint: `Events seen in the last ${ranges.find((item) => item.value === range)?.label}` },
+            { label: "Occurrences", value: loading ? "—" : occurrences.toLocaleString(), icon: Activity, hint: "Across listed event types" },
+            { label: "Avg. per event", value: loading || !activeTypes ? "—" : Math.round(occurrences / activeTypes).toLocaleString(), icon: Users, hint: "Occurrences divided by active types" },
+          ].map(({ label, value, icon: Icon, hint }) => (
+            <article key={label} className="glow-card glass-surface rounded-2xl p-5">
+              <div className="flex items-center justify-between text-sm text-zinc-400"><span>{label}</span><Icon size={17} className="text-indigo-300" /></div>
+              <div className="mt-5 text-3xl font-semibold tracking-tight text-white">{value}</div>
+              <p className="mt-2 text-xs text-zinc-500">{hint}</p>
+            </article>
+          ))}
+        </section>
 
-        {/* Data Table */}
-        <div className="glow-card rounded-xl border border-zinc-800 bg-zinc-950/50 overflow-hidden">
-          <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
-            <h3 className="text-sm font-bold text-white">Event Performance</h3>
-            <button className="flex items-center gap-1.5 text-xs font-semibold text-zinc-400 hover:text-white transition">
-              <Download size={14} /> Export
-            </button>
+        <section className="glow-card glass-surface overflow-hidden rounded-2xl">
+          <div className="flex items-center justify-between border-b border-white/[0.07] px-5 py-4">
+            <div><h2 className="font-semibold text-white">Most active events</h2><p className="mt-1 text-xs text-zinc-500">Ranked by observed occurrences · {ranges.find((item) => item.value === range)?.label}</p></div>
+            <Link href="/events" className="flex items-center gap-1 text-xs font-medium text-indigo-300 hover:text-indigo-200">Event catalog <ArrowUpRight size={14} /></Link>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-zinc-900/50 text-xs text-zinc-500 uppercase font-semibold">
-                <tr>
-                  <th className="px-4 py-3 font-medium">Event Name</th>
-                  <th className="px-4 py-3 font-medium">Users</th>
-                  <th className="px-4 py-3 font-medium">Occurrences</th>
-                  <th className="px-4 py-3 font-medium">Trend</th>
-                  <th className="px-4 py-3 font-medium">Change %</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-800">
-                {mockTrendsData.map((row, i) => (
-                  <tr key={i} className="hover:bg-zinc-900/30 transition">
-                    <td className="px-4 py-3 font-medium text-white">{row.event}</td>
-                    <td className="px-4 py-3 text-zinc-300">{row.users.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-zinc-300">{row.occurrences.toLocaleString()}</td>
-                    <td className="px-4 py-3">
-                      <span className={`text-xs font-medium px-2 py-0.5 rounded ${row.trend === 'up' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
-                        {row.trend === 'up' ? '↑' : '↓'}
-                      </span>
-                    </td>
-                    <td className={`px-4 py-3 font-medium ${row.change > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                      {row.change > 0 ? '+' : ''}{row.change}%
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+          {loading ? <div className="space-y-3 p-5">{[1, 2, 3, 4].map((key) => <div key={key} className="h-10 animate-pulse rounded-lg bg-white/[0.04]" />)}</div> : events.length ? (
+            <div className="divide-y divide-white/[0.05]">
+              {events.slice(0, 12).map((event) => (
+                <div key={event.eventName} className="grid grid-cols-[minmax(0,1fr)_90px_90px] items-center gap-4 px-5 py-3.5 transition hover:bg-white/[0.025] sm:grid-cols-[minmax(180px,1.2fr)_minmax(100px,2fr)_100px_110px]">
+                  <div className="min-w-0"><p className="truncate text-sm font-medium text-zinc-200">{event.label || event.eventName}</p><p className="truncate font-mono text-[11px] text-zinc-500">{event.eventName}</p></div>
+                  <div className="hidden h-1.5 overflow-hidden rounded-full bg-white/[0.06] sm:block"><div className="h-full rounded-full bg-gradient-to-r from-indigo-400 to-violet-400" style={{ width: `${Math.max(3, event.count / peak * 100)}%` }} /></div>
+                  <span className="text-right font-mono text-xs text-zinc-300">{event.count.toLocaleString()} <span className="text-zinc-500 sm:hidden">occ.</span></span>
+                  <span className="hidden text-right text-xs text-zinc-400 sm:block">{event.users.toLocaleString()} users</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="px-6 py-14 text-center">
+              <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-2xl border border-white/[0.08] bg-white/[0.04] text-indigo-300"><Activity size={19} /></div>
+              <h3 className="mt-4 text-sm font-semibold text-white">No event activity in this range</h3>
+              <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-zinc-400">Once your project sends events, their real counts and active users will show here. Start by instrumenting a repository or inspecting the event catalog.</p>
+              <div className="mt-5 flex justify-center gap-3"><Link href="/instrumentation" className="rounded-lg bg-indigo-500 px-3.5 py-2 text-xs font-semibold text-white transition hover:bg-indigo-400">Instrument repository</Link><Link href="/events" className="rounded-lg border border-white/10 px-3.5 py-2 text-xs font-semibold text-zinc-300 transition hover:bg-white/5">Open events</Link></div>
+              {catalog?.unavailable?.reason && <p className="mt-4 text-xs text-zinc-600">{catalog.unavailable.reason}</p>}
+            </div>
+          )}
+        </section>
+        <p className="text-xs text-zinc-600">The event catalog returns up to 150 event types. Counts reflect the selected project scope and time range.</p>
       </div>
     </DashboardLayout>
   );

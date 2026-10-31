@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
+import SpotlightController from "@/components/ui/SpotlightController";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -28,6 +29,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       style={{ colorScheme: "dark" }}
     >
       <body className="min-h-full flex flex-col bg-[#030307] text-zinc-100 font-sans">
+        <SpotlightController />
         {hasClerkKey ? (
           <ClerkProvider
             appearance={{
@@ -81,4 +83,3 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     </html>
   );
 }
-

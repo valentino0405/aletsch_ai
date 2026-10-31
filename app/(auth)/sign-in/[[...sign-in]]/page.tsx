@@ -2,7 +2,7 @@ import { SignIn } from "@clerk/nextjs";
 
 export default function SignInPage() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#030307] px-4 py-12 relative overflow-hidden">
+    <div className="app-shell flex min-h-screen items-center justify-center px-4 py-12 relative overflow-hidden">
       {/* Background glow effects */}
       <div className="absolute top-1/4 left-1/4 h-96 w-96 rounded-full bg-indigo-500/10 blur-[100px] pointer-events-none" />
       <div className="absolute bottom-1/4 right-1/4 h-96 w-96 rounded-full bg-purple-500/10 blur-[100px] pointer-events-none" />
@@ -18,9 +18,10 @@ export default function SignInPage() {
         </div>
         
         <SignIn
+          forceRedirectUrl="/dashboard"
           appearance={{
             elements: {
-              card: "bg-zinc-950/50 backdrop-blur-xl border border-zinc-800/80 shadow-2xl rounded-2xl",
+              card: "glass-surface border-white/10 shadow-2xl rounded-3xl",
               headerTitle: "text-white font-bold",
               headerSubtitle: "text-zinc-400",
               socialButtonsBlockButton: "bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-zinc-100",
