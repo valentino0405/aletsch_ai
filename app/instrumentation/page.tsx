@@ -556,7 +556,7 @@ export default function Instrumentation() {
                     <div
                       className={`flex flex-col p-4 rounded-xl border relative z-10 w-full transition ${
                         st.status === "complete"
-                          ? "border-emerald-500/30 bg-emerald-500/5"
+                          ? "border-accent/40 bg-accent/5"
                           : st.status === "active"
                           ? "border-cyan-500/40 bg-cyan-500/5 animate-pulse"
                           : st.status === "future"
@@ -565,12 +565,16 @@ export default function Instrumentation() {
                       }`}
                     >
                       <div className="flex items-center gap-2 mb-1">
-                        <span className="text-[9px] font-mono font-bold text-cyan-400 bg-cyan-500/10 px-1.5 py-0.5 rounded">
+                        <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded ${
+                          st.status === "complete"
+                            ? "text-accent-hover bg-accent/10"
+                            : "text-cyan-400 bg-cyan-500/10"
+                        }`}>
                           0{idx + 1}
                         </span>
                         <span className="text-xs font-bold text-white">{st.title}</span>
                         <span className="ml-auto">
-                          {st.status === "complete" && <CheckCircle2 size={12} className="text-emerald-400" />}
+                          {st.status === "complete" && <CheckCircle2 size={12} className="text-accent" />}
                           {st.status === "active" && <Loader2 size={12} className="text-cyan-400 animate-spin" />}
                           {st.status === "future" && <Clock size={12} className="text-zinc-600" />}
                         </span>
@@ -893,7 +897,7 @@ export default function Instrumentation() {
                     <button
                       onClick={handleApply}
                       disabled={isApplying || isAnalyzing || !selectedProjectId}
-                      className="w-full flex items-center justify-center gap-1.5 bg-emerald-600/10 hover:bg-emerald-600/20 disabled:opacity-50 disabled:cursor-not-allowed text-emerald-400 border border-emerald-500/20 rounded-lg py-2.5 text-xs font-semibold transition cursor-pointer"
+                      className="w-full flex items-center justify-center gap-1.5 bg-accent hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-on-accent border border-accent rounded-lg py-2.5 text-xs font-semibold transition cursor-pointer"
                     >
                       {isApplying ? (
                         <>

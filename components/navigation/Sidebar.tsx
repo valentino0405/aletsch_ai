@@ -4,6 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { UserButton, useUser } from "@clerk/nextjs";
 import { useEffect, useState } from "react";
+import Logo from "@/components/brand/Logo";
+import LogoutButton from "@/components/auth/LogoutButton";
 import {
   LayoutDashboard,
   FolderKanban,
@@ -126,24 +128,18 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
     >
       {/* Top Header */}
       <div className="flex-1 min-h-0 flex flex-col">
-        <div className="h-16 flex items-center justify-between px-4 border-b border-zinc-800/60">
-          <div className="flex items-center gap-3 overflow-hidden">
-            <div className="h-8 w-8 min-w-[32px] rounded-lg bg-accent flex items-center justify-center font-bold text-on-accent">
-              A
-            </div>
+        <div className={`h-16 flex items-center justify-between border-b border-zinc-800/60 ${isOpen ? "px-4" : "px-2"}`}>
+          <Link href="/" aria-label="Aletsch AI home" className="min-w-0 inline-flex flex-col items-start gap-1">
+            <Logo size="small" compact={!isOpen} />
             {isOpen && (
-              <div className="flex flex-col">
-                <span className="font-bold text-sm tracking-tight text-white">
-                  Aletsch AI
-                </span>
-                <span className="text-[9px] text-zinc-500 font-medium tracking-wide uppercase">
-                  Auto-Instrumented
-                </span>
-              </div>
+              <span className="pl-[33px] text-[9px] text-zinc-500 font-medium tracking-wide uppercase">
+                Auto-Instrumented
+              </span>
             )}
-          </div>
+          </Link>
           <button
             onClick={() => setIsOpen(!isOpen)}
+            aria-label={isOpen ? "Collapse sidebar" : "Expand sidebar"}
             className="p-1 rounded-md hover:bg-zinc-800/50 text-zinc-400 hover:text-white transition"
           >
             {isOpen ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
@@ -268,6 +264,10 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
             )}
           </div>
         </div>
+        <LogoutButton
+          compact={!isOpen}
+          className={`mt-1 rounded-lg px-3 py-2 text-xs text-zinc-400 hover:bg-zinc-900 hover:text-white transition ${isOpen ? "" : "justify-center"}`}
+        />
       </div>
     </aside>
   );

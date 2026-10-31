@@ -1,4 +1,6 @@
 import { SignUp } from "@clerk/nextjs";
+import Link from "next/link";
+import Logo from "@/components/brand/Logo";
 
 export default function SignUpPage() {
   return (
@@ -8,16 +10,13 @@ export default function SignUpPage() {
       <div className="absolute bottom-1/4 right-1/4 h-96 w-96 rounded-full bg-purple-500/10 blur-[100px] pointer-events-none" />
       
       <div className="relative z-10 w-full max-w-md flex flex-col items-center">
-        <div className="flex items-center gap-2 mb-8">
-          <div className="h-8 w-8 rounded-lg bg-accent flex items-center justify-center font-bold text-on-accent">
-            A
-          </div>
-          <span className="font-semibold text-lg tracking-tight bg-gradient-to-r from-white via-zinc-200 to-zinc-400 bg-clip-text text-transparent">
-            Aletsch AI
-          </span>
-        </div>
+        <Link href="/" aria-label="Aletsch AI home" className="mb-8 inline-flex"><Logo /></Link>
         
         <SignUp
+          routing="path"
+          path="/sign-up"
+          signInUrl="/sign-in"
+          fallbackRedirectUrl="/dashboard"
           appearance={{
             elements: {
               card: "bg-card-dark backdrop-blur-xl border border-zinc-800 shadow-2xl rounded-2xl",

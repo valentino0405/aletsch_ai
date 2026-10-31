@@ -84,7 +84,7 @@ export default function PipelineDiagram() {
                 onMouseEnter={() => hold(i)}
                 className={`w-full rounded-xl border p-4 transition-all duration-300 sm:flex-1 ${
                   isActive
-                    ? "border-indigo-500/60 bg-indigo-500/10 shadow-[0_0_30px_rgba(99,102,241,0.15)]"
+                    ? "border-indigo-500/60 bg-indigo-500/10 shadow-[0_0_30px_rgba(255,96,70,0.15)]"
                     : reached
                     ? "border-zinc-700/60 bg-zinc-900/40"
                     : "border-zinc-800/60 bg-zinc-950/40"

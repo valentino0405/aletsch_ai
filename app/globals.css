@@ -1,67 +1,69 @@
 @import "tailwindcss";
 
 @theme {
-  --color-background: #050605;
-  --color-card-dark: #151b14;
+  --color-background: #050608;
+  --color-card-dark: #12161c;
   --color-accent: #ff6046;
   --color-accent-hover: #ff8066;
-  --color-on-accent: #101810;
-  --color-sage: #a6b88f;
-  --color-paper: #e4efdd;
-  --color-muted: #a8b0a5;
-  --color-line: #333a34;
+  --color-on-accent: #101216;
+  --color-secondary: #8faabd;
+  --color-blue-deep: #071017;
+  --color-blue-haze: #374751;
+  --color-paper: #e8edf2;
+  --color-muted: #a6afb9;
+  --color-line: #303741;
 
-  /* Existing page utilities share the landing palette, including API-supplied badges. */
-  --color-white: #e4efdd;
-  --color-black: #050605;
-  --color-zinc-50: #f0f4ec;
-  --color-zinc-100: #e4efdd;
-  --color-zinc-200: #d2dccd;
-  --color-zinc-300: #c2cbbd;
-  --color-zinc-400: #a8b0a5;
-  --color-zinc-500: #8b9687;
-  --color-zinc-600: #818e7b;
-  --color-zinc-700: #4b5846;
-  --color-zinc-800: #333a34;
-  --color-zinc-900: #20251f;
-  --color-zinc-950: #0d110c;
+  /* Existing utilities and API-supplied badges use the same brand palette. */
+  --color-white: #e8edf2;
+  --color-black: #050608;
+  --color-zinc-50: #f3f6f8;
+  --color-zinc-100: #e8edf2;
+  --color-zinc-200: #d3dae2;
+  --color-zinc-300: #bac4ce;
+  --color-zinc-400: #a6afb9;
+  --color-zinc-500: #8794a2;
+  --color-zinc-600: #748190;
+  --color-zinc-700: #475462;
+  --color-zinc-800: #303741;
+  --color-zinc-900: #1c232b;
+  --color-zinc-950: #0b0e12;
 
   --color-indigo-300: #ffa38d;
   --color-indigo-400: #ff8066;
   --color-indigo-500: #ff6046;
   --color-indigo-600: #e4533c;
   --color-indigo-700: #b64230;
-  --color-purple-300: #cbd6bf;
-  --color-purple-400: #b6c4a7;
-  --color-purple-500: #a6b88f;
-  --color-purple-600: #7f946c;
-  --color-cyan-300: #c1d2cd;
-  --color-cyan-400: #a9c0ba;
-  --color-cyan-500: #8faeaa;
-  --color-cyan-600: #6e928d;
-  --color-emerald-300: #c4d5b4;
-  --color-emerald-400: #afc69d;
-  --color-emerald-500: #98b587;
-  --color-emerald-600: #769963;
-  --color-blue-400: #a9bec7;
-  --color-blue-500: #8da9b5;
-  --color-teal-400: #a9c0ba;
-  --color-teal-500: #8faeaa;
-  --color-amber-300: #ead6b5;
-  --color-amber-400: #ddbf90;
-  --color-amber-500: #cba972;
-  --color-yellow-300: #ead6b5;
-  --color-yellow-400: #ddbf90;
-  --color-yellow-500: #cba972;
-  --color-orange-400: #e9ad86;
-  --color-orange-500: #d89369;
-  --color-rose-200: #f4ccc5;
-  --color-rose-300: #efb0a6;
-  --color-rose-400: #e58d83;
-  --color-rose-500: #d8756b;
+  --color-purple-300: #c3d1df;
+  --color-purple-400: #a6bbd0;
+  --color-purple-500: #8faabd;
+  --color-purple-600: #607e99;
+  --color-cyan-300: #c0d8e6;
+  --color-cyan-400: #a0c3d8;
+  --color-cyan-500: #7da7bf;
+  --color-cyan-600: #567e98;
+  --color-emerald-300: #c3d7e6;
+  --color-emerald-400: #a9c5d9;
+  --color-emerald-500: #83a9c2;
+  --color-emerald-600: #608aa6;
+  --color-blue-400: #a9c0d1;
+  --color-blue-500: #7396ae;
+  --color-teal-400: #a0c3d8;
+  --color-teal-500: #7da7bf;
+  --color-amber-300: #ffc6a8;
+  --color-amber-400: #ffa77c;
+  --color-amber-500: #e98b5a;
+  --color-yellow-300: #ffd0b5;
+  --color-yellow-400: #ffb18a;
+  --color-yellow-500: #e99a6b;
+  --color-orange-400: #ff9a7e;
+  --color-orange-500: #ff6046;
+  --color-rose-200: #ffd0c8;
+  --color-rose-300: #ffb1a3;
+  --color-rose-400: #f98d7d;
+  --color-rose-500: #e76c5b;
 
   --color-accent-indigo: var(--color-accent);
-  --color-accent-purple: var(--color-sage);
+  --color-accent-purple: var(--color-secondary);
   --color-accent-cyan: var(--color-cyan-500);
   --color-accent-emerald: var(--color-emerald-500);
   --color-accent-rose: var(--color-rose-500);
@@ -71,8 +73,8 @@
 }
 
 :root {
-  --background: #050605;
-  --foreground: #e4efdd;
+  --background: var(--color-background);
+  --foreground: var(--color-paper);
   color-scheme: dark;
 }
 
@@ -83,7 +85,12 @@ body {
   overflow-x: hidden;
 }
 
-/* Shared charcoal and sage surfaces. */
+.dashboard-shell {
+  background: linear-gradient(180deg, var(--color-background) 25%, var(--color-blue-deep) 100%);
+  background-attachment: fixed;
+}
+
+/* Shared charcoal surfaces. */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -104,10 +111,10 @@ body {
   color: var(--color-paper);
 }
 
-/* Quiet sage panels with a coral hover accent. */
+/* Charcoal panels with a subtle blue gradient and an orange hover accent. */
 .glow-card {
   position: relative;
-  background: var(--color-card-dark);
+  background: radial-gradient(ellipse at 100% 0%, rgb(115 150 174 / 7%), transparent 65%), var(--color-card-dark);
   backdrop-filter: blur(16px);
   border: 1px solid var(--color-line);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -119,7 +126,7 @@ body {
   inset: 0;
   border-radius: inherit;
   padding: 1px;
-  background: linear-gradient(to bottom right, rgb(166 184 143 / 14%), rgb(166 184 143 / 4%), transparent);
+  background: linear-gradient(to bottom right, rgb(143 170 189 / 14%), rgb(143 170 189 / 4%), transparent);
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
@@ -135,7 +142,7 @@ body {
 }
 
 .glow-card:hover::before {
-  background: linear-gradient(to bottom right, rgb(255 96 70 / 20%), rgb(166 184 143 / 8%), transparent);
+  background: linear-gradient(to bottom right, rgb(255 96 70 / 20%), rgb(143 170 189 / 8%), transparent);
 }
 
 /* Muted accents retain the distinction between metrics and statuses. */
@@ -144,19 +151,19 @@ body {
 }
 
 .glow-purple {
-  box-shadow: 0 0 15px rgb(166 184 143 / 7%);
+  box-shadow: 0 0 15px rgb(143 170 189 / 7%);
 }
 
 .glow-cyan {
-  box-shadow: 0 0 15px rgb(143 174 170 / 7%);
+  box-shadow: 0 0 15px rgb(125 167 191 / 7%);
 }
 
 .glow-emerald {
-  box-shadow: 0 0 15px rgb(152 181 135 / 7%);
+  box-shadow: 0 0 15px rgb(131 169 194 / 7%);
 }
 
 .glow-rose {
-  box-shadow: 0 0 15px rgb(216 117 107 / 7%);
+  box-shadow: 0 0 15px rgb(231 108 91 / 7%);
 }
 
 /* Pulse animation for live indicators */

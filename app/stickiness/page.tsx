@@ -44,7 +44,7 @@ export default function StickinessPage() {
               <div 
                 key={i} 
                 className="h-full flex items-center justify-center text-xs font-bold text-paper border-r border-zinc-800 last:border-0"
-                style={{ width: `${item.percent}%`, backgroundColor: `color-mix(in srgb, var(--color-sage) ${25 + i * 10}%, var(--color-zinc-950))` }}
+                style={{ width: `${item.percent}%`, backgroundColor: `color-mix(in srgb, var(--color-secondary) ${25 + i * 10}%, var(--color-zinc-950))` }}
               >
                 {item.frequency} ({item.percent}%)
               </div>

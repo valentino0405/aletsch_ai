@@ -4,8 +4,9 @@
 // that no dashboard page or data API is reachable anonymously.
 // ============================================================
 
-import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
+import { clerkMiddleware } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
+import { isPublicPath } from "@/lib/auth/public-routes";
 
 /**
  * Routes that must stay reachable without a Clerk session.
@@ -15,16 +16,8 @@ import { NextResponse } from "next/server";
  * has no Clerk session. It is authorised separately by a per-project
  * write key (see app/api/ingest/route.ts).
  */
-const isPublicRoute = createRouteMatcher([
-  "/",
-  "/sign-in(.*)",
-  "/sign-up(.*)",
-  "/api/ingest",
-  "/api/health",
-]);
-
 export default clerkMiddleware(async (auth, req) => {
-  if (isPublicRoute(req)) return;
+  if (isPublicPath(req.nextUrl.pathname)) return;
 
   const session = await auth();
   if (session.userId) return;
@@ -35,7 +28,7 @@ export default clerkMiddleware(async (auth, req) => {
   }
 
   return session.redirectToSignIn();
-});
+}, { signInUrl: "/sign-in", signUpUrl: "/sign-up" });
 
 export const config = {
   matcher: [

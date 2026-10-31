@@ -59,7 +59,7 @@ export default function RetentionPage() {
                       <td key={j} className="px-1 py-1">
                         <div 
                           className="h-8 flex items-center justify-center text-xs font-semibold text-paper rounded"
-                          style={{ backgroundColor: `color-mix(in srgb, var(--color-sage) ${val * 0.55}%, var(--color-zinc-950))` }}
+                          style={{ backgroundColor: `color-mix(in srgb, var(--color-secondary) ${val * 0.55}%, var(--color-zinc-950))` }}
                         >
                           {val}%
                         </div>

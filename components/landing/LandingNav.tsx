@@ -1,8 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import { useAuth } from "@clerk/nextjs";
 import { useEffect, useRef, useState } from "react";
-import { ArrowUpRight, Menu, UserRound, Waypoints, X } from "lucide-react";
+import { ArrowUpRight, Menu, UserRound, X } from "lucide-react";
+import Logo from "@/components/brand/Logo";
+import AccountDropdown from "./AccountDropdown";
 import styles from "./landing.module.css";
 
 const LINKS = [
@@ -12,10 +15,12 @@ const LINKS = [
 ];
 
 export default function LandingNav({ signedIn }: { signedIn: boolean }) {
+  const { isLoaded, isSignedIn } = useAuth();
+  const authenticated = isLoaded ? !!isSignedIn : signedIn;
   const [open, setOpen] = useState(false);
   const headerRef = useRef<HTMLElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
-  const startHref = signedIn ? "/dashboard" : "/sign-up";
+  const startHref = authenticated ? "/dashboard" : "/sign-up";
 
   useEffect(() => {
     if (!open) return;
@@ -39,21 +44,25 @@ export default function LandingNav({ signedIn }: { signedIn: boolean }) {
 
   return (
     <header ref={headerRef} className={styles.header}>
-      <Link href="#top" className={styles.brand} onClick={() => setOpen(false)} aria-label="Aletsch AI home"><Waypoints size={25} strokeWidth={1.6} aria-hidden="true" />ALETSCH.AI</Link>
+      <Link href="#top" className={styles.brand} onClick={() => setOpen(false)} aria-label="Aletsch AI home"><Logo /></Link>
       <div className={styles.desktopNavigation}>
         <div className={styles.navViewport}>
           <nav className={styles.navGroup} aria-label="Main navigation">
             {LINKS.map((link) => <Link key={link.href} href={link.href}>{link.label}</Link>)}
-            <Link href={startHref} className={styles.navCta}>{signedIn ? "Dashboard" : "Get Started"}<ArrowUpRight size={15} aria-hidden="true" /></Link>
+            <Link href={startHref} className={styles.navCta}>{authenticated ? "Dashboard" : "Get Started"}<ArrowUpRight size={15} aria-hidden="true" /></Link>
           </nav>
         </div>
-        <Link href={signedIn ? "/dashboard" : "/sign-in"} className={styles.login}><UserRound size={19} aria-hidden="true" />{signedIn ? "My Account" : "Log In"}</Link>
+        {authenticated ? <AccountDropdown /> : (
+          <Link href="/sign-in" className={styles.login}><UserRound size={19} aria-hidden="true" />Sign in</Link>
+        )}
       </div>
       <button ref={toggleRef} type="button" className={styles.menuToggle} onClick={() => setOpen(!open)} aria-label={open ? "Close menu" : "Open menu"} aria-expanded={open} aria-controls="mobile-navigation">{open ? <X size={23} /> : <Menu size={23} />}</button>
       <nav id="mobile-navigation" className={styles.mobileNavigation} aria-label="Mobile navigation" hidden={!open}>
         {LINKS.map((link) => <Link key={link.href} href={link.href} onClick={() => setOpen(false)}>{link.label}<ArrowUpRight size={17} aria-hidden="true" /></Link>)}
-        <Link href={signedIn ? "/dashboard" : "/sign-in"} onClick={() => setOpen(false)}>{signedIn ? "My Account" : "Log In"}<UserRound size={17} aria-hidden="true" /></Link>
-        <Link href={startHref} className={styles.primaryButton} onClick={() => setOpen(false)}>{signedIn ? "Dashboard" : "Get Started"}<ArrowUpRight size={17} aria-hidden="true" /></Link>
+        {authenticated ? <AccountDropdown mobile /> : (
+          <Link href="/sign-in" onClick={() => setOpen(false)}>Sign in<UserRound size={17} aria-hidden="true" /></Link>
+        )}
+        <Link href={startHref} className={styles.primaryButton} onClick={() => setOpen(false)}>{authenticated ? "Dashboard" : "Get Started"}<ArrowUpRight size={17} aria-hidden="true" /></Link>
       </nav>
     </header>
   );

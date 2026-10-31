@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
-import { ArrowDown, ArrowUpRight, ChartNoAxesCombined, CodeXml, GitBranch, ScanLine, Sparkles, Waypoints } from "lucide-react";
+import { ArrowDown, ArrowUpRight, ChartNoAxesCombined, CodeXml, GitBranch, ScanLine, Sparkles } from "lucide-react";
+import Logo from "@/components/brand/Logo";
 import LandingNav from "@/components/landing/LandingNav";
 import DataLandscape from "@/components/landing/DataLandscape";
+import Globe from "@/components/landing/Globe";
 import LandingMotion from "@/components/landing/LandingMotion";
 import styles from "@/components/landing/landing.module.css";
 
@@ -18,25 +20,6 @@ const STEPS = [
   { title: "Review your instrumentation", text: "See exactly what will be tracked before you ship." },
   { title: "Understand your users", text: "Find the patterns behind every product journey." },
 ];
-
-function OrbitGraphic() {
-  return (
-    <svg className={styles.orbitGraphic} viewBox="0 0 640 480" fill="none" aria-hidden="true">
-      <defs><radialGradient id="orbit-glow"><stop stopColor="#a6b8ad" stopOpacity=".13" /><stop offset="1" stopColor="#a6b8ad" stopOpacity="0" /></radialGradient></defs>
-      <ellipse cx="320" cy="240" rx="305" ry="225" fill="url(#orbit-glow)" />
-      <g stroke="#dcebd9" strokeOpacity=".23" strokeWidth=".7">
-        <circle cx="320" cy="240" r="155" />
-        <ellipse cx="320" cy="240" rx="155" ry="55" /><ellipse cx="320" cy="240" rx="155" ry="110" />
-        <ellipse cx="320" cy="240" rx="55" ry="155" /><ellipse cx="320" cy="240" rx="110" ry="155" />
-        <path d="M165 240h310M320 85v310" />
-        <ellipse cx="320" cy="240" rx="265" ry="92" transform="rotate(-28 320 240)" strokeDasharray="2 7" />
-        <ellipse cx="320" cy="240" rx="242" ry="108" transform="rotate(28 320 240)" />
-      </g>
-      <g fill="#ff6046"><circle cx="112" cy="305" r="5" /><circle cx="481" cy="140" r="5" /><circle cx="407" cy="270" r="4" /></g>
-      <g fill="#e3efdc"><circle cx="215" cy="186" r="3" /><circle cx="320" cy="85" r="3" /><circle cx="320" cy="395" r="3" /></g>
-    </svg>
-  );
-}
 
 export default async function Home() {
   const { userId } = await auth();
@@ -84,7 +67,7 @@ export default async function Home() {
           <div className={styles.workflowVisual}>
             <span className={styles.sectionLabel}>From code to clarity</span>
             <h2 id="workflow-title" data-reveal="heading">Unprecedented clarity.<br />Effortless analytics.</h2>
-            <OrbitGraphic />
+            <Globe />
             <span className={styles.visualCaption}><GitBranch size={15} aria-hidden="true" />Every insight starts with your code.</span>
           </div>
           <div className={styles.workflowContent}>
@@ -110,7 +93,7 @@ export default async function Home() {
 
       <footer className={styles.footer}>
         <div className={styles.footerTop}>
-          <div><Link href="#top" className={styles.brand} aria-label="Aletsch AI home"><Waypoints size={25} strokeWidth={1.6} aria-hidden="true" />ALETSCH.AI</Link><p className={styles.footerTagline}>Your code. Your users.<br />A whole new perspective.</p></div>
+          <div><Link href="#top" className={styles.brand} aria-label="Aletsch AI home"><Logo /></Link><p className={styles.footerTagline}>Your code. Your users.<br />A whole new perspective.</p></div>
           <nav aria-label="Footer navigation" className={styles.footerNav}><Link href="#features">Solutions</Link><Link href="#how">How It Works</Link><Link href="#vision">Our Vision</Link></nav>
           <div className={styles.footerAction}><span>Make your next move a smarter one.</span><Link className={styles.outlineButton} href={startHref}>{startLabel}<ArrowUpRight size={17} aria-hidden="true" /></Link></div>
         </div>

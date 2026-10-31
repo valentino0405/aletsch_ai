@@ -755,7 +755,7 @@ export default function Dashboard() {
                           <defs>
                             <linearGradient id="indigo-grad" x1="0" y1="0" x2="1" y2="0">
                               <stop offset="0%" stopColor="var(--color-accent)" />
-                              <stop offset="50%" stopColor="var(--color-sage)" />
+                              <stop offset="50%" stopColor="var(--color-secondary)" />
                               <stop offset="100%" stopColor="var(--color-cyan-500)" />
                             </linearGradient>
                           </defs>

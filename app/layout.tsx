@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
+import Logo from "@/components/brand/Logo";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -45,23 +46,28 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="min-h-full flex flex-col bg-background text-zinc-100 font-sans">
         {hasClerkKey ? (
           <ClerkProvider
+            signInUrl="/sign-in"
+            signUpUrl="/sign-up"
+            signInFallbackRedirectUrl="/dashboard"
+            signUpFallbackRedirectUrl="/dashboard"
+            afterSignOutUrl="/"
             appearance={{
               variables: {
                 colorPrimary: "#ff6046",
-                colorPrimaryForeground: "#101810",
-                colorBackground: "#151b14",
-                colorForeground: "#e4efdd",
-                colorMuted: "#20251f",
-                colorMutedForeground: "#a8b0a5",
-                colorInput: "#20251f",
-                colorInputForeground: "#e4efdd",
-                colorNeutral: "#e4efdd",
-                colorBorder: "#333a34",
+                colorPrimaryForeground: "#101216",
+                colorBackground: "#12161c",
+                colorForeground: "#e8edf2",
+                colorMuted: "#1c232b",
+                colorMutedForeground: "#a6afb9",
+                colorInput: "#1c232b",
+                colorInputForeground: "#e8edf2",
+                colorNeutral: "#e8edf2",
+                colorBorder: "#303741",
                 colorRing: "#ff6046",
-                colorDanger: "#e58d83",
-                colorSuccess: "#afc69d",
-                colorWarning: "#ddbf90",
-                colorModalBackdrop: "#050605",
+                colorDanger: "#f98d7d",
+                colorSuccess: "#a9c5d9",
+                colorWarning: "#ffa77c",
+                colorModalBackdrop: "#050608",
               },
             }}
           >
@@ -73,14 +79,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <div className="absolute inset-0 bg-gradient-to-tr from-indigo-500/10 via-purple-500/5 to-transparent pointer-events-none" />
               
               <div className="relative z-10">
-                <div className="flex items-center gap-2 mb-6">
-                  <div className="h-8 w-8 rounded-lg bg-accent flex items-center justify-center font-bold text-on-accent">
-                    A
-                  </div>
-                  <span className="font-semibold text-lg tracking-tight bg-gradient-to-r from-white via-zinc-200 to-zinc-400 bg-clip-text text-transparent">
-                    Aletsch AI
-                  </span>
-                </div>
+                <Logo className="mb-6" />
                 
                 <h2 className="text-xl font-bold text-white mb-2">Clerk Setup Required</h2>
                 <p className="text-sm text-zinc-400 mb-6">

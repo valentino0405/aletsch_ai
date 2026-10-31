@@ -1,0 +1,24 @@
+.logo {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--logo-gap, 11px);
+  color: var(--color-paper);
+  font-family: var(--font-geist-mono), "Courier New", monospace;
+  font-size: var(--logo-font-size, 23px);
+  font-weight: 400;
+  letter-spacing: var(--logo-letter-spacing, -1.2px);
+  white-space: nowrap;
+}
+
+.mark {
+  flex-shrink: 0;
+  width: var(--logo-icon-width, 25px);
+  height: 25px;
+  color: var(--color-accent);
+}
+
+.small {
+  --logo-font-size: 17px;
+  --logo-gap: 8px;
+  --logo-letter-spacing: -0.8px;
+}
